@@ -1,0 +1,88 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="300"
+        x:Class="ClipVault.Views.Dialogs.AddGroupDialog"
+        Title="Add New Group"
+        Width="400" Height="280"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        ShowInTaskbar="False"
+        SystemDecorations="BorderOnly">
+
+    <Window.Styles>
+        <Style Selector="Button.colorButton">
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.colorButton:pointerover">
+            <Setter Property="Opacity" Value="0.8"/>
+        </Style>
+        <Style Selector="Button.colorButton.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseHighBrush}"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="24" RowDefinitions="Auto,Auto,Auto,*,Auto">
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   Text="Add New Group"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,20"/>
+        
+        <!-- Name Input -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,16">
+            <TextBlock Text="Name" 
+                       FontSize="12"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                       Margin="0,0,0,6"/>
+            <TextBox x:Name="NameTextBox"
+                     Watermark="Enter group name..."
+                     Padding="12,10"/>
+        </StackPanel>
+        
+        <!-- Color Selection -->
+        <StackPanel Grid.Row="2">
+            <TextBlock Text="Color" 
+                       FontSize="12"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                       Margin="0,0,0,6"/>
+            <WrapPanel x:Name="ColorPanel">
+                <Button Classes="colorButton selected" Tag="#e74c3c" Background="#e74c3c" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#e67e22" Background="#e67e22" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#f1c40f" Background="#f1c40f" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#2ecc71" Background="#2ecc71" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#1abc9c" Background="#1abc9c" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#3498db" Background="#3498db" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#9b59b6" Background="#9b59b6" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#34495e" Background="#34495e" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#95a5a6" Background="#95a5a6" Click="OnColorClick"/>
+                <Button Classes="colorButton" Tag="#e91e63" Background="#e91e63" Click="OnColorClick"/>
+            </WrapPanel>
+        </StackPanel>
+        
+        <!-- Spacer -->
+        <Panel Grid.Row="3"/>
+        
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" 
+                    Orientation="Horizontal" 
+                    HorizontalAlignment="Right"
+                    Spacing="8">
+            <Button Content="Cancel" 
+                    Padding="20,10"
+                    Click="OnCancelClick"/>
+            <Button Content="Create Group" 
+                    Padding="20,10"
+                    Background="{DynamicResource SystemAccentColor}"
+                    Click="OnCreateClick"/>
+        </StackPanel>
+    </Grid>
+</Window>
