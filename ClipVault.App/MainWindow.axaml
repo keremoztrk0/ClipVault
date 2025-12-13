@@ -1,0 +1,443 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:ClipVault.App.ViewModels"
+        xmlns:converters="clr-namespace:ClipVault.App.Converters"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        x:Class="ClipVault.App.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="ClipVault"
+        Width="900" Height="600"
+        MinWidth="700" MinHeight="400"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource SystemChromeLowColor}"
+        TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="False">
+
+    <Window.Resources>
+        <converters:ColorStringToBrushConverter x:Key="ColorToBrush"/>
+        <converters:ContentTypeToIconConverter x:Key="ContentTypeToIcon"/>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <converters:NotNullConverter x:Key="NotNull"/>
+        <converters:FilePathToImageConverter x:Key="FilePathToImage"/>
+    </Window.Resources>
+
+    <Window.Styles>
+        <!-- Group Chip Style -->
+        <Style Selector="Button.groupChip">
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Margin" Value="4,0"/>
+            <Setter Property="CornerRadius" Value="16"/>
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.groupChip:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumHighBrush}"/>
+        </Style>
+        <Style Selector="Button.groupChip.selected">
+            <Setter Property="Background" Value="{DynamicResource SystemAccentColor}"/>
+        </Style>
+        
+        <!-- List Item Style -->
+        <Style Selector="Button.listItem">
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="0,1"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.listItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundListLowBrush}"/>
+        </Style>
+        <Style Selector="Button.listItem.selected">
+            <Setter Property="Background" Value="{DynamicResource SystemAccentColorLight2}"/>
+        </Style>
+        
+        <!-- Action Button Style -->
+        <Style Selector="Button.actionButton">
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- Top Bar -->
+        <Border Grid.Row="0" 
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                Padding="16,12"
+                BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <Grid ColumnDefinitions="Auto,*">
+                <!-- Search Box -->
+                <Border Grid.Column="0" 
+                        Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                        CornerRadius="8"
+                        Padding="8,0"
+                        Width="250">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <PathIcon Grid.Column="0" 
+                                  Data="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"
+                                  Width="16" Height="16"
+                                  Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                  Margin="0,0,8,0"/>
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding SearchText}"
+                                 Watermark="Search clips..."
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 VerticalContentAlignment="Center"/>
+                    </Grid>
+                </Border>
+                
+                <!-- Group Chips -->
+                <ScrollViewer Grid.Column="1" 
+                              HorizontalScrollBarVisibility="Auto" 
+                              VerticalScrollBarVisibility="Disabled"
+                              Margin="16,0,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <ItemsControl ItemsSource="{Binding Groups}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:GroupViewModel">
+                                    <Button Classes="groupChip"
+                                            Classes.selected="{Binding IsSelected}"
+                                            Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).SelectGroupCommand}"
+                                            CommandParameter="{Binding}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Ellipse Width="10" Height="10"
+                                                     Fill="{Binding Color, Converter={StaticResource ColorToBrush}}"
+                                                     IsVisible="{Binding Id, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding ItemCount, StringFormat='({0})'}" 
+                                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="11"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        
+                        <!-- Add Group Button -->
+                        <Button Classes="groupChip"
+                                Click="OnAddGroupClick"
+                                ToolTip.Tip="Add new group">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" 
+                                          Width="14" Height="14"/>
+                                <TextBlock Text="Add Group"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Row="1" ColumnDefinitions="5*,7*">
+            <!-- Left Panel - Clipboard List -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    BorderThickness="0,0,1,0"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                <Grid RowDefinitions="*">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding ClipboardItems}" Margin="8">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ClipboardItemViewModel">
+                                    <Button Classes="listItem"
+                                            Classes.selected="{Binding IsSelected}"
+                                            Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).SelectItemCommand}"
+                                            CommandParameter="{Binding}"
+                                            Tag="{Binding}"
+                                            PointerPressed="OnClipboardItemPointerPressed">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <!-- Content Type Icon -->
+                                            <Border Grid.Column="0" 
+                                                    Width="36" Height="36"
+                                                    CornerRadius="6"
+                                                    Background="{DynamicResource SystemControlBackgroundListLowBrush}"
+                                                    Margin="0,0,10,0">
+                                                <PathIcon Data="{Binding ContentType, Converter={StaticResource ContentTypeToIcon}}"
+                                                          Width="18" Height="18"
+                                                          Foreground="{DynamicResource SystemControlForegroundBaseMediumHighBrush}"/>
+                                            </Border>
+                                            
+                                            <!-- Preview Text -->
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding PreviewText}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           MaxLines="1"
+                                                           FontSize="13"/>
+                                                <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                                    <TextBlock Text="{Binding TimeAgo}"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                                                    <TextBlock Text=" - "
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                                               IsVisible="{Binding SourceApplication, Converter={StaticResource NotNull}}"/>
+                                                    <TextBlock Text="{Binding SourceApplication}"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                                               IsVisible="{Binding SourceApplication, Converter={StaticResource NotNull}}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                            
+                                            <!-- Group Color Indicator -->
+                                            <Ellipse Grid.Column="2"
+                                                     Width="8" Height="8"
+                                                     Fill="{Binding GroupColor, Converter={StaticResource ColorToBrush}}"
+                                                     IsVisible="{Binding GroupId, Converter={StaticResource NotNull}}"
+                                                     VerticalAlignment="Center"
+                                                     Margin="8,0,0,0"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    
+                    <!-- Empty State -->
+                    <StackPanel VerticalAlignment="Center" 
+                                HorizontalAlignment="Center"
+                                IsVisible="{Binding !ClipboardItems.Count}">
+                        <PathIcon Data="M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M19,19H5V5H19V19M17,12H12V17H17V12M15,15H14V14H15V15M7,7H17V9H7V7Z"
+                                  Width="48" Height="48"
+                                  Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                        <TextBlock Text="No clipboard items yet"
+                                   Margin="0,12,0,0"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="Copy something to get started"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Right Panel - Detail View -->
+            <Grid Grid.Column="1" RowDefinitions="*,Auto,*">
+                <!-- Content Preview (Upper Half) -->
+                <Border Grid.Row="0"
+                        Margin="16,16,16,8"
+                        Padding="16"
+                        CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                    <Grid>
+                        <!-- Text Content -->
+                        <ScrollViewer IsVisible="{Binding DetailViewModel.IsTextContent}"
+                                      VerticalScrollBarVisibility="Auto">
+                            <TextBox Text="{Binding DetailViewModel.ContentDisplay}"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     AcceptsReturn="True"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     FontFamily="Consolas, Monaco, monospace"/>
+                        </ScrollViewer>
+                        
+                        <!-- Image Content -->
+                        <Image Source="{Binding DetailViewModel.ContentDisplay, Converter={StaticResource FilePathToImage}}"
+                               IsVisible="{Binding DetailViewModel.IsImageContent}"
+                               Stretch="Uniform"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                        
+                        <!-- File Content -->
+                        <StackPanel IsVisible="{Binding DetailViewModel.IsFileContent}"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Center">
+                            <PathIcon Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"
+                                      Width="64" Height="64"
+                                      Foreground="{DynamicResource SystemAccentColor}"/>
+                            <TextBlock Text="{Binding DetailViewModel.FileNameDisplay}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,8,0,0"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding DetailViewModel.ContentDisplay}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,4,0,0"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxWidth="300"/>
+                        </StackPanel>
+                        
+                        <!-- No Selection State -->
+                        <StackPanel IsVisible="{Binding !DetailViewModel.HasSelection}"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Center">
+                            <PathIcon Data="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"
+                                      Width="48" Height="48"
+                                      Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"/>
+                            <TextBlock Text="Select an item to preview"
+                                       Margin="0,12,0,0"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                
+                <!-- Divider -->
+                <GridSplitter Grid.Row="1" 
+                              Height="4" 
+                              HorizontalAlignment="Stretch"
+                              Background="Transparent"/>
+                
+                <!-- Metadata (Lower Half) -->
+                <Border Grid.Row="2"
+                        Margin="16,8,16,16"
+                        Padding="16"
+                        CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                        IsVisible="{Binding DetailViewModel.HasSelection}">
+                    <Grid RowDefinitions="Auto,*,Auto">
+                        <!-- Metadata Header -->
+                        <TextBlock Grid.Row="0" 
+                                   Text="Details"
+                                   FontWeight="SemiBold"
+                                   FontSize="14"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- Metadata Grid -->
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                                <Grid.Styles>
+                                    <Style Selector="TextBlock.label">
+                                        <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                                        <Setter Property="Margin" Value="0,4,16,4"/>
+                                        <Setter Property="FontSize" Value="12"/>
+                                    </Style>
+                                    <Style Selector="TextBlock.value">
+                                        <Setter Property="Margin" Value="0,4"/>
+                                        <Setter Property="FontSize" Value="12"/>
+                                    </Style>
+                                </Grid.Styles>
+                                
+                                <!-- Type -->
+                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="Type"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.ContentTypeDisplay}"/>
+                                
+                                <!-- Characters (for text) -->
+                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="Characters"
+                                           IsVisible="{Binding DetailViewModel.CharacterCountDisplay, Converter={StaticResource NotNull}}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.CharacterCountDisplay}"
+                                           IsVisible="{Binding DetailViewModel.CharacterCountDisplay, Converter={StaticResource NotNull}}"/>
+                                
+                                <!-- Words (for text) -->
+                                <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="Words"
+                                           IsVisible="{Binding DetailViewModel.WordCountDisplay, Converter={StaticResource NotNull}}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.WordCountDisplay}"
+                                           IsVisible="{Binding DetailViewModel.WordCountDisplay, Converter={StaticResource NotNull}}"/>
+                                
+                                <!-- Lines (for text) -->
+                                <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="Lines"
+                                           IsVisible="{Binding DetailViewModel.LineCountDisplay, Converter={StaticResource NotNull}}"/>
+                                <TextBlock Grid.Row="3" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.LineCountDisplay}"
+                                           IsVisible="{Binding DetailViewModel.LineCountDisplay, Converter={StaticResource NotNull}}"/>
+                                
+                                <!-- File Size -->
+                                <TextBlock Grid.Row="4" Grid.Column="0" Classes="label" Text="Size"
+                                           IsVisible="{Binding DetailViewModel.FileSizeDisplay, Converter={StaticResource NotNull}}"/>
+                                <TextBlock Grid.Row="4" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.FileSizeDisplay}"
+                                           IsVisible="{Binding DetailViewModel.FileSizeDisplay, Converter={StaticResource NotNull}}"/>
+                                
+                                <!-- Dimensions -->
+                                <TextBlock Grid.Row="5" Grid.Column="0" Classes="label" Text="Dimensions"
+                                           IsVisible="{Binding DetailViewModel.DimensionsDisplay, Converter={StaticResource NotNull}}"/>
+                                <TextBlock Grid.Row="5" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.DimensionsDisplay}"
+                                           IsVisible="{Binding DetailViewModel.DimensionsDisplay, Converter={StaticResource NotNull}}"/>
+                                
+                                <!-- Source App -->
+                                <TextBlock Grid.Row="6" Grid.Column="0" Classes="label" Text="Source"/>
+                                <TextBlock Grid.Row="6" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.SourceAppDisplay}"/>
+                                
+                                <!-- Created -->
+                                <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="Copied"/>
+                                <TextBlock Grid.Row="7" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.CreatedAtDisplay}"/>
+                                
+                                <!-- MIME Type -->
+                                <TextBlock Grid.Row="8" Grid.Column="0" Classes="label" Text="MIME Type"
+                                           IsVisible="{Binding DetailViewModel.MimeTypeDisplay, Converter={StaticResource NotNull}}"/>
+                                <TextBlock Grid.Row="8" Grid.Column="1" Classes="value" Text="{Binding DetailViewModel.MimeTypeDisplay}"
+                                           IsVisible="{Binding DetailViewModel.MimeTypeDisplay, Converter={StaticResource NotNull}}"/>
+                            </Grid>
+                        </ScrollViewer>
+                        
+                        <!-- Action Buttons -->
+                        <StackPanel Grid.Row="2" 
+                                    Orientation="Horizontal" 
+                                    HorizontalAlignment="Right"
+                                    Margin="0,12,0,0">
+                            <Button Classes="actionButton"
+                                    Command="{Binding DetailViewModel.CopyToClipboardCommand}"
+                                    Background="{DynamicResource SystemAccentColor}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"
+                                              Width="14" Height="14"/>
+                                    <TextBlock Text="Copy"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Classes="actionButton"
+                                    Command="{Binding DetailViewModel.DeleteCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
+                                              Width="14" Height="14"/>
+                                    <TextBlock Text="Delete"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                
+                <!-- No Selection Metadata Placeholder -->
+                <Border Grid.Row="2"
+                        Margin="16,8,16,16"
+                        Padding="16"
+                        CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                        IsVisible="{Binding !DetailViewModel.HasSelection}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <TextBlock Text="No item selected"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                Padding="16,8"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" 
+                           Text="{Binding StatusMessage}"
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding ClipboardItems.Count, StringFormat='{}{0} items'}"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
