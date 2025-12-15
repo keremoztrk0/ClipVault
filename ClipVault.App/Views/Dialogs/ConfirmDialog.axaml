@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="200"
+        x:Class="ClipVault.App.Views.Dialogs.ConfirmDialog"
+        Title="Confirm"
+        Width="400" Height="180"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        ShowInTaskbar="False"
+        SystemDecorations="BorderOnly">
+
+    <Grid Margin="24" RowDefinitions="Auto,*,Auto">
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   x:Name="TitleText"
+                   Text="Confirm"
+                   FontSize="18"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,12"/>
+        
+        <!-- Message -->
+        <TextBlock Grid.Row="1"
+                   x:Name="MessageText"
+                   Text="Are you sure?"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                   VerticalAlignment="Top"/>
+        
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" 
+                    Orientation="Horizontal" 
+                    HorizontalAlignment="Right"
+                    Spacing="8">
+            <Button Content="Cancel" 
+                    Padding="20,10"
+                    Click="OnCancelClick"/>
+            <Button x:Name="ConfirmButton"
+                    Content="Delete" 
+                    Padding="20,10"
+                    Background="#e74c3c"
+                    Click="OnConfirmClick"/>
+        </StackPanel>
+    </Grid>
+</Window>

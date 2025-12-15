@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="200" d:DesignHeight="40"
+             x:Class="ClipVault.App.Controls.HotkeyRecorder"
+             Focusable="True">
+    
+    <Border x:Name="RecorderBorder"
+            Background="{DynamicResource TextControlBackground}"
+            BorderBrush="{DynamicResource TextControlBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="4"
+            Padding="10,8"
+            Cursor="Hand">
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBlock x:Name="HotkeyDisplay"
+                       Grid.Column="0"
+                       Text="Click to record..."
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextControlPlaceholderForeground}"/>
+            <Button x:Name="ClearButton"
+                    Grid.Column="1"
+                    Content="&#xE711;"
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="10"
+                    Padding="4,2"
+                    Margin="8,0,0,0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    VerticalAlignment="Center"
+                    IsVisible="False"
+                    ToolTip.Tip="Clear hotkey"/>
+        </Grid>
+    </Border>
+</UserControl>

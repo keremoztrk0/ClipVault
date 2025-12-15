@@ -1,0 +1,279 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:ClipVault.App.ViewModels"
+        xmlns:local="clr-namespace:ClipVault.App.Views"
+        xmlns:controls="clr-namespace:ClipVault.App.Controls"
+        mc:Ignorable="d" d:DesignWidth="550" d:DesignHeight="650"
+        x:Class="ClipVault.App.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="Settings"
+        Width="550" Height="650"
+        MinWidth="450" MinHeight="500"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        ShowInTaskbar="False">
+
+    <Window.Styles>
+        <!-- Section Header Style -->
+        <Style Selector="TextBlock.sectionHeader">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,16,0,12"/>
+        </Style>
+        
+        <!-- Setting Label Style -->
+        <Style Selector="TextBlock.settingLabel">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        
+        <!-- Setting Description Style -->
+        <Style Selector="TextBlock.settingDescription">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+        </Style>
+        
+        <!-- Setting Row Style -->
+        <Style Selector="Border.settingRow">
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="0,4"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- Header -->
+        <Border Grid.Row="0" 
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                Padding="24,20"
+                BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <StackPanel>
+                <TextBlock Text="Settings"
+                           FontSize="24"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="Configure ClipVault preferences"
+                           FontSize="13"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                           Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Settings Content -->
+        <ScrollViewer Grid.Row="1" 
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="24,0">
+            <StackPanel Margin="0,0,0,24">
+                
+                <!-- General Section -->
+                <TextBlock Text="General" Classes="sectionHeader"/>
+                
+                <!-- Global Hotkey -->
+                <Border Classes="settingRow">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Global Hotkey" Classes="settingLabel"/>
+                            <TextBlock Text="Click to record a new keyboard shortcut" Classes="settingDescription"/>
+                        </StackPanel>
+                        <controls:HotkeyRecorder Grid.Column="1" 
+                                                  Hotkey="{Binding GlobalHotkey, Mode=TwoWay}"
+                                                  Width="180"
+                                                  VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+                
+                <!-- Theme -->
+                <Border Classes="settingRow">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Theme" Classes="settingLabel"/>
+                            <TextBlock Text="Choose the application appearance" Classes="settingDescription"/>
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" 
+                                  ItemsSource="{Binding ThemeOptions}"
+                                  SelectedItem="{Binding SelectedTheme}"
+                                  Width="150"
+                                  VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+                
+                <!-- Window Opacity -->
+                <Border Classes="settingRow">
+                    <Grid RowDefinitions="Auto,Auto">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Window Opacity" Classes="settingLabel"/>
+                                <TextBlock Text="Adjust the transparency of the window" Classes="settingDescription"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" 
+                                       Text="{Binding WindowOpacity, StringFormat='{}{0:P0}'}"
+                                       VerticalAlignment="Center"
+                                       Width="50"
+                                       TextAlignment="Right"/>
+                        </Grid>
+                        <Slider Grid.Row="1" 
+                                Value="{Binding WindowOpacity}"
+                                Minimum="0.5"
+                                Maximum="1.0"
+                                TickFrequency="0.05"
+                                IsSnapToTickEnabled="True"
+                                Margin="0,8,0,0"/>
+                    </Grid>
+                </Border>
+                
+                <!-- Startup Section -->
+                <TextBlock Text="Startup" Classes="sectionHeader"/>
+                
+                <!-- Start with System -->
+                <Border Classes="settingRow">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Start with System" Classes="settingLabel"/>
+                            <TextBlock Text="Launch ClipVault automatically when you log in" Classes="settingDescription"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" 
+                                      IsChecked="{Binding StartWithSystem}"
+                                      VerticalAlignment="Center"
+                                      OnContent=""
+                                      OffContent=""/>
+                    </Grid>
+                </Border>
+                
+                <!-- Start Minimized -->
+                <Border Classes="settingRow">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Start Minimized" Classes="settingLabel"/>
+                            <TextBlock Text="Start in the system tray instead of showing the window" Classes="settingDescription"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" 
+                                      IsChecked="{Binding StartMinimized}"
+                                      VerticalAlignment="Center"
+                                      OnContent=""
+                                      OffContent=""/>
+                    </Grid>
+                </Border>
+                
+                <!-- Show in Taskbar -->
+                <Border Classes="settingRow">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Show in Taskbar" Classes="settingLabel"/>
+                            <TextBlock Text="Display ClipVault in the Windows taskbar" Classes="settingDescription"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" 
+                                      IsChecked="{Binding ShowInTaskbar}"
+                                      VerticalAlignment="Center"
+                                      OnContent=""
+                                      OffContent=""/>
+                    </Grid>
+                </Border>
+                
+                <!-- History Section -->
+                <TextBlock Text="History" Classes="sectionHeader"/>
+                
+                <!-- Max History Items -->
+                <Border Classes="settingRow">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Maximum Items" Classes="settingLabel"/>
+                            <TextBlock Text="Maximum number of clipboard items to keep (0 = unlimited)" Classes="settingDescription"/>
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" 
+                                  x:Name="MaxHistoryComboBox"
+                                  ItemsSource="{Binding MaxHistoryOptions}"
+                                  SelectedItem="{Binding MaxHistoryItems}"
+                                  Width="150"
+                                  VerticalAlignment="Center">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding ., Converter={x:Static local:SettingsWindow.MaxHistoryConverter}}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+                
+                <!-- Retention Days -->
+                <Border Classes="settingRow">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Auto-delete After" Classes="settingLabel"/>
+                            <TextBlock Text="Automatically delete items older than this (0 = keep forever)" Classes="settingDescription"/>
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" 
+                                  x:Name="RetentionDaysComboBox"
+                                  ItemsSource="{Binding RetentionDayOptions}"
+                                  SelectedItem="{Binding RetentionDays}"
+                                  Width="150"
+                                  VerticalAlignment="Center">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding ., Converter={x:Static local:SettingsWindow.RetentionDaysConverter}}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+                
+                <!-- About Section -->
+                <TextBlock Text="About" Classes="sectionHeader"/>
+                
+                <Border Classes="settingRow">
+                    <StackPanel>
+                        <TextBlock Text="ClipVault" 
+                                   FontSize="14" 
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="Version 1.0.0" 
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   Margin="0,4,0,0"/>
+                        <TextBlock Text="A cross-platform clipboard manager built with Avalonia UI" 
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                Padding="24,16"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <!-- Status -->
+                <TextBlock Grid.Column="0"
+                           Text="{Binding StatusMessage}"
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                
+                <!-- Buttons -->
+                <StackPanel Grid.Column="2" 
+                            Orientation="Horizontal" 
+                            Spacing="8">
+                    <Button Content="Reset to Defaults" 
+                            Padding="16,10"
+                            Command="{Binding ResetToDefaultsCommand}"/>
+                    <Button Content="Cancel" 
+                            Padding="16,10"
+                            Click="OnCancelClick"/>
+                    <Button Content="Save" 
+                            Padding="16,10"
+                            Background="{DynamicResource SystemAccentColor}"
+                            Click="OnSaveClick"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
