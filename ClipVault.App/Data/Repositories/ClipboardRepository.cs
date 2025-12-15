@@ -291,6 +291,88 @@ public class ClipboardRepository : IClipboardRepository
             new { Id = id.ToString(), LastAccessedAt = DateTime.UtcNow.ToString("O") });
     }
     
+    public async Task<List<ClipboardItem>> GetItemsOlderThanAsync(DateTime olderThan)
+    {
+        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        
+        // Get non-favorite items older than the specified date that are NOT in a group
+        List<ClipboardItem> items = (await connection.QueryAsync<ClipboardItem>(
+            @"SELECT * FROM ClipboardItems 
+              WHERE CreatedAt < @OlderThan AND IsFavorite = 0 AND GroupId IS NULL",
+            new { OlderThan = olderThan.ToString("O") })).ToList();
+        
+        return items;
+    }
+    
+    public async Task<List<ClipboardItem>> GetExcessItemsAsync(int maxItems)
+    {
+        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        
+        // Get total count of items that can be deleted (not in a group)
+        int totalCount = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ClipboardItems WHERE GroupId IS NULL");
+        
+        if (totalCount <= maxItems)
+        {
+            return [];
+        }
+        
+        int toDelete = totalCount - maxItems;
+        
+        // Get oldest non-favorite items that are NOT in a group
+        List<ClipboardItem> items = (await connection.QueryAsync<ClipboardItem>(
+            @"SELECT * FROM ClipboardItems 
+              WHERE IsFavorite = 0 AND GroupId IS NULL
+              ORDER BY CreatedAt ASC 
+              LIMIT @ToDelete",
+            new { ToDelete = toDelete })).ToList();
+        
+        return items;
+    }
+    
+    public async Task<int> DeleteOlderThanAsync(DateTime olderThan)
+    {
+        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        
+        // Delete non-favorite items older than the specified date
+        // Also exclude items that belong to a group (GroupId IS NOT NULL)
+        // Metadata will be deleted by CASCADE
+        int deleted = await connection.ExecuteAsync(
+            @"DELETE FROM ClipboardItems 
+              WHERE CreatedAt < @OlderThan AND IsFavorite = 0 AND GroupId IS NULL",
+            new { OlderThan = olderThan.ToString("O") });
+        
+        return deleted;
+    }
+    
+    public async Task<int> DeleteExcessItemsAsync(int maxItems)
+    {
+        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        
+        // Get total count of items that can be deleted (not in a group)
+        int totalCount = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ClipboardItems WHERE GroupId IS NULL");
+        
+        if (totalCount <= maxItems)
+        {
+            return 0;
+        }
+        
+        int toDelete = totalCount - maxItems;
+        
+        // Delete oldest non-favorite items that are NOT in a group
+        // Using a subquery to find the IDs of items to delete
+        int deleted = await connection.ExecuteAsync(
+            @"DELETE FROM ClipboardItems 
+              WHERE Id IN (
+                  SELECT Id FROM ClipboardItems 
+                  WHERE IsFavorite = 0 AND GroupId IS NULL
+                  ORDER BY CreatedAt ASC 
+                  LIMIT @ToDelete
+              )",
+            new { ToDelete = toDelete });
+        
+        return deleted;
+    }
+    
     private static async Task LoadRelatedDataAsync(Microsoft.Data.Sqlite.SqliteConnection connection, List<ClipboardItem> items)
     {
         if (items.Count == 0) return;

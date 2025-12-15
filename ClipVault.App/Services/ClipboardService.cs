@@ -62,6 +62,138 @@ public class ClipboardService : IClipboardService, IDisposable
         Logger.Debug("Copied item to clipboard: {Id}", item.Id);
     }
 
+    public async Task DeleteItemAsync(ClipboardItem item)
+    {
+        try
+        {
+            // Delete associated file from storage if it exists and is in our Content folder
+            if (!string.IsNullOrEmpty(item.FilePath))
+            {
+                DeleteStoredFile(item.FilePath);
+            }
+            
+            // Delete the database record
+            await _clipboardRepository.DeleteAsync(item.Id);
+            
+            Logger.Information("Deleted clipboard item {Id} and associated files", item.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Error deleting clipboard item {Id}", item.Id);
+            throw;
+        }
+    }
+    
+    /// <summary>
+    /// Deletes a stored content file if it exists within the app's content storage folder.
+    /// </summary>
+    private static void DeleteStoredFile(string filePath)
+    {
+        try
+        {
+            // Only delete files that are stored in our Content folder
+            string contentStoragePath = AppDbContext.GetContentStoragePath();
+            
+            // Handle multiple file paths (semicolon separated)
+            string[] paths = filePath.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            
+            foreach (string path in paths)
+            {
+                string trimmedPath = path.Trim();
+                
+                // Security check: only delete files within our content storage folder
+                string fullPath = Path.GetFullPath(trimmedPath);
+                string storagePath = Path.GetFullPath(contentStoragePath);
+                
+                if (fullPath.StartsWith(storagePath, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                    Logger.Debug("Deleted stored content file: {FilePath}", fullPath);
+                }
+                else
+                {
+                    Logger.Debug("Skipping file deletion (external file): {FilePath}", trimmedPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning(ex, "Failed to delete stored file: {FilePath}", filePath);
+            // Don't throw - file deletion failure shouldn't prevent item deletion
+        }
+    }
+
+    public async Task<int> CleanupAsync(int maxItems, int retentionDays)
+    {
+        int totalDeleted = 0;
+
+        try
+        {
+            // First, delete items older than retention period
+            if (retentionDays > 0)
+            {
+                DateTime cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
+                
+                // Get items to delete first so we can clean up their files
+                List<ClipboardItem> itemsToDelete = await _clipboardRepository.GetItemsOlderThanAsync(cutoffDate);
+                
+                // Delete associated files
+                foreach (ClipboardItem item in itemsToDelete)
+                {
+                    if (!string.IsNullOrEmpty(item.FilePath))
+                    {
+                        DeleteStoredFile(item.FilePath);
+                    }
+                }
+                
+                // Now delete from database
+                int deletedByAge = await _clipboardRepository.DeleteOlderThanAsync(cutoffDate);
+                totalDeleted += deletedByAge;
+                
+                if (deletedByAge > 0)
+                {
+                    Logger.Information("Deleted {Count} items older than {Days} days", deletedByAge, retentionDays);
+                }
+            }
+
+            // Then, enforce max items limit
+            if (maxItems > 0)
+            {
+                // Get items to delete first so we can clean up their files
+                List<ClipboardItem> itemsToDelete = await _clipboardRepository.GetExcessItemsAsync(maxItems);
+                
+                // Delete associated files
+                foreach (ClipboardItem item in itemsToDelete)
+                {
+                    if (!string.IsNullOrEmpty(item.FilePath))
+                    {
+                        DeleteStoredFile(item.FilePath);
+                    }
+                }
+                
+                // Now delete from database
+                int deletedByLimit = await _clipboardRepository.DeleteExcessItemsAsync(maxItems);
+                totalDeleted += deletedByLimit;
+                
+                if (deletedByLimit > 0)
+                {
+                    Logger.Information("Deleted {Count} items to enforce max limit of {Max}", deletedByLimit, maxItems);
+                }
+            }
+
+            if (totalDeleted > 0)
+            {
+                Logger.Information("Cleanup completed: {Total} items removed", totalDeleted);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Error during clipboard cleanup");
+        }
+
+        return totalDeleted;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

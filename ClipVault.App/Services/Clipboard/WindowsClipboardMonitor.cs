@@ -190,12 +190,12 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                     case ClipboardContentType.Image:
                         // For images, copy the file path as text (user can paste in file managers)
                         // Or if we have the original image data, we'd need platform-specific code
-                        if (content.FilePaths != null && content.FilePaths.Length > 0) await clipboard.SetTextAsync(content.FilePaths[0]);
+                        if (content.FilePaths is { Length: > 0 }) await clipboard.SetTextAsync(content.FilePaths[0]);
                         break;
 
                     case ClipboardContentType.File:
                     case ClipboardContentType.Files:
-                        if (content.FilePaths != null && content.FilePaths.Length > 0) await clipboard.SetTextAsync(string.Join(Environment.NewLine, content.FilePaths));
+                        if (content.FilePaths is { Length: > 0 }) await clipboard.SetTextAsync(string.Join(Environment.NewLine, content.FilePaths));
                         break;
                 }
             });
@@ -307,7 +307,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         if (hash == _lastContentHash) return;
 
         Logger.Information("New clipboard content detected: {Type}, Hash: {Hash}",
-            content.Type, hash?.Substring(0, 8));
+            content.Type, hash?[..8]);
         _lastContentHash = hash;
 
         string? sourceApp = GetForegroundApplicationName();
@@ -488,6 +488,28 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
 
             GetWindowThreadProcessId(hwnd, out int processId);
             Process process = Process.GetProcessById(processId);
+            
+            // Try to get the friendly name from FileVersionInfo
+            string? mainModulePath = process.MainModule?.FileName;
+            if (!string.IsNullOrEmpty(mainModulePath))
+            {
+                FileVersionInfo versionInfo = FileVersionInfo.GetVersionInfo(mainModulePath);
+
+                string? friendlyName = versionInfo.FileDescription;
+                if (string.IsNullOrWhiteSpace(friendlyName))
+                {
+                    friendlyName = versionInfo.ProductName;
+                }
+
+                if (!string.IsNullOrWhiteSpace(friendlyName))
+                {
+                    return friendlyName;
+                }
+                
+            }
+            
+            
+            // Fall back to process name if no friendly name available
             return process.ProcessName;
         }
         catch

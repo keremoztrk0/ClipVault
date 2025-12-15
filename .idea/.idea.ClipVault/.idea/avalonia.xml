@@ -3,10 +3,10 @@
   <component name="AvaloniaProject">
     <option name="projectPerEditor">
       <map>
-        <entry key="ClipVault/App.axaml" value="ClipVault/ClipVault.csproj" />
-        <entry key="ClipVault/MainWindow.axaml" value="ClipVault/ClipVault.csproj" />
-        <entry key="ClipVault/Views/Dialogs/AddGroupDialog.axaml" value="ClipVault/ClipVault.csproj" />
-      </map>
+        <entry key="ClipVault.App/App.axaml" value="ClipVault.App/ClipVault.App.csproj" />
+        <entry key="ClipVault.App/MainWindow.axaml" value="ClipVault.App/ClipVault.App.csproj" />
+        <entry key="ClipVault.App/Views/Dialogs/AddGroupDialog.axaml" value="ClipVault.App/ClipVault.App.csproj" />
+        </map>
     </option>
   </component>
 </project>

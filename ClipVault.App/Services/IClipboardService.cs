@@ -28,7 +28,22 @@ public interface IClipboardService
     Task CopyToClipboardAsync(ClipboardItem item);
     
     /// <summary>
+    /// Deletes a clipboard item and its associated files from storage.
+    /// </summary>
+    /// <param name="item">The item to delete.</param>
+    Task DeleteItemAsync(ClipboardItem item);
+    
+    /// <summary>
     /// Whether clipboard monitoring is active.
     /// </summary>
     bool IsMonitoring { get; }
+    
+    /// <summary>
+    /// Runs cleanup based on settings (max items and retention days).
+    /// Items in groups are excluded from cleanup.
+    /// </summary>
+    /// <param name="maxItems">Maximum number of items to keep (0 = unlimited).</param>
+    /// <param name="retentionDays">Delete items older than this many days (0 = keep forever).</param>
+    /// <returns>Total number of items deleted.</returns>
+    Task<int> CleanupAsync(int maxItems, int retentionDays);
 }

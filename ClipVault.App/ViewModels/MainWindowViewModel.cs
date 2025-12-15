@@ -18,7 +18,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly AppDbContext _dbContext;
     private readonly IClipboardRepository _clipboardRepository;
     private readonly IGroupRepository _groupRepository;
+    private readonly ISettingsRepository _settingsRepository;
     private readonly IClipboardService _clipboardService;
+    private AppSettings? _currentSettings;
     private bool _disposed;
     
     [ObservableProperty]
@@ -59,6 +61,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         // Initialize repositories
         _clipboardRepository = new ClipboardRepository(_dbContext);
         _groupRepository = new GroupRepository(_dbContext);
+        _settingsRepository = new SettingsRepository(_dbContext);
         
         // Initialize clipboard service
         IClipboardMonitor monitor = ClipboardMonitorFactory.Create();
@@ -88,6 +91,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         {
             // Initialize database schema
             await DatabaseInitializer.InitializeAsync(_dbContext);
+            
+            // Load settings for cleanup
+            _currentSettings = await _settingsRepository.GetSettingsAsync();
+            
+            // Run cleanup based on settings (max items and retention)
+            await RunCleanupAsync();
             
             // Load groups
             await LoadGroupsAsync();
@@ -131,6 +140,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     
     private async Task LoadClipboardItemsAsync()
     {
+        // Remember currently selected item ID to restore selection after reload
+        Guid? previouslySelectedId = SelectedItem?.Id;
+        
         IEnumerable<ClipboardItem> items;
         
         if (!string.IsNullOrWhiteSpace(SearchText) || FilterContentType.HasValue || 
@@ -150,6 +162,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         foreach (ClipboardItem item in items)
         {
             ClipboardItems.Add(new ClipboardItemViewModel(item));
+        }
+        
+        // Try to restore previously selected item, or select first item
+        if (previouslySelectedId.HasValue)
+        {
+            ClipboardItemViewModel? previousItem = ClipboardItems.FirstOrDefault(i => i.Id == previouslySelectedId.Value);
+            SelectedItem = previousItem ?? ClipboardItems.FirstOrDefault();
+        }
+        else
+        {
+            SelectedItem = ClipboardItems.FirstOrDefault();
         }
         
         // Update group counts
@@ -172,7 +195,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         // Update each group's count
         foreach (GroupViewModel group in Groups.Where(g => g.Id != Guid.Empty))
         {
-            group.ItemCount = groupCounts.TryGetValue(group.Id, out int count) ? count : 0;
+            group.ItemCount = groupCounts.GetValueOrDefault(group.Id, 0);
         }
     }
     
@@ -228,6 +251,136 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         SelectedItem = item;
     }
     
+    /// <summary>
+    /// Selects the next item in the clipboard list.
+    /// </summary>
+    public void SelectNextItem()
+    {
+        if (ClipboardItems.Count == 0) return;
+        
+        if (SelectedItem == null)
+        {
+            SelectedItem = ClipboardItems[0];
+            return;
+        }
+        
+        // Find current index by ID (reference equality may fail after list reload)
+        int currentIndex = -1;
+        for (int i = 0; i < ClipboardItems.Count; i++)
+        {
+            if (ClipboardItems[i].Id == SelectedItem.Id)
+            {
+                currentIndex = i;
+                break;
+            }
+        }
+        
+        if (currentIndex >= 0 && currentIndex < ClipboardItems.Count - 1)
+        {
+            SelectedItem = ClipboardItems[currentIndex + 1];
+        }
+        else if (currentIndex < 0 && ClipboardItems.Count > 0)
+        {
+            // SelectedItem not found in list, select first item
+            SelectedItem = ClipboardItems[0];
+        }
+    }
+    
+    /// <summary>
+    /// Selects the previous item in the clipboard list.
+    /// </summary>
+    public void SelectPreviousItem()
+    {
+        if (ClipboardItems.Count == 0) return;
+        
+        if (SelectedItem == null)
+        {
+            SelectedItem = ClipboardItems[0];
+            return;
+        }
+        
+        // Find current index by ID (reference equality may fail after list reload)
+        int currentIndex = -1;
+        for (int i = 0; i < ClipboardItems.Count; i++)
+        {
+            if (ClipboardItems[i].Id == SelectedItem.Id)
+            {
+                currentIndex = i;
+                break;
+            }
+        }
+        
+        if (currentIndex > 0)
+        {
+            SelectedItem = ClipboardItems[currentIndex - 1];
+        }
+        else if (currentIndex < 0 && ClipboardItems.Count > 0)
+        {
+            // SelectedItem not found in list, select first item
+            SelectedItem = ClipboardItems[0];
+        }
+    }
+    
+    /// <summary>
+    /// Selects the next group.
+    /// </summary>
+    public void SelectNextGroup()
+    {
+        if (Groups.Count == 0) return;
+        
+        if (SelectedGroup == null)
+        {
+            SelectedGroup = Groups[0];
+            return;
+        }
+        
+        int currentIndex = Groups.IndexOf(SelectedGroup);
+        if (currentIndex < Groups.Count - 1)
+        {
+            SelectedGroup = Groups[currentIndex + 1];
+        }
+    }
+    
+    /// <summary>
+    /// Selects the previous group.
+    /// </summary>
+    public void SelectPreviousGroup()
+    {
+        if (Groups.Count == 0) return;
+        
+        if (SelectedGroup == null)
+        {
+            SelectedGroup = Groups[0];
+            return;
+        }
+        
+        int currentIndex = Groups.IndexOf(SelectedGroup);
+        if (currentIndex > 0)
+        {
+            SelectedGroup = Groups[currentIndex - 1];
+        }
+    }
+    
+    /// <summary>
+    /// Copies the currently selected item to the clipboard.
+    /// </summary>
+    [RelayCommand]
+    private async Task CopySelectedItemAsync()
+    {
+        if (SelectedItem == null) return;
+        
+        try
+        {
+            await _clipboardService.CopyToClipboardAsync(SelectedItem.Model);
+            StatusMessage = "Copied to clipboard";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Copy failed: {ex.Message}";
+            Log.Error(ex, "Failed to copy selected item to clipboard");
+        }
+    }
+    
     [RelayCommand]
     private async Task DeleteItemAsync(ClipboardItemViewModel? item)
     {
@@ -235,7 +388,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         
         try
         {
-            await _clipboardRepository.DeleteAsync(item.Id);
+            // Use ClipboardService to delete item and associated files
+            await _clipboardService.DeleteItemAsync(item.Model);
             ClipboardItems.Remove(item);
             
             if (SelectedItem?.Id == item.Id)
@@ -339,6 +493,48 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         StatusMessage = "All items cleared";
     }
     
+    /// <summary>
+    /// Runs cleanup based on current settings (max items and retention days).
+    /// </summary>
+    private async Task RunCleanupAsync()
+    {
+        if (_currentSettings == null) return;
+        
+        try
+        {
+            int deleted = await _clipboardService.CleanupAsync(
+                _currentSettings.MaxHistoryItems,
+                _currentSettings.RetentionDays);
+            
+            if (deleted > 0)
+            {
+                Log.Information("Cleanup removed {Count} items (MaxItems={Max}, RetentionDays={Days})",
+                    deleted, _currentSettings.MaxHistoryItems, _currentSettings.RetentionDays);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to run cleanup");
+        }
+    }
+    
+    /// <summary>
+    /// Reloads settings from the database. Call this when settings have changed externally.
+    /// </summary>
+    public async Task ReloadSettingsAsync()
+    {
+        try
+        {
+            _currentSettings = await _settingsRepository.GetSettingsAsync();
+            Log.Debug("Settings reloaded: MaxHistoryItems={Max}, RetentionDays={Days}",
+                _currentSettings.MaxHistoryItems, _currentSettings.RetentionDays);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to reload settings");
+        }
+    }
+
     private async void OnClipboardItemAdded(object? sender, ClipboardItem item)
     {
         try
@@ -357,6 +553,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 
                 StatusMessage = $"New item captured: {item.ContentType}";
                 Log.Debug("Item added to UI, total items: {TotalItems}", ClipboardItems.Count);
+                
+                // Run cleanup to enforce max items limit
+                if (_currentSettings?.MaxHistoryItems > 0)
+                {
+                    int deleted = await _clipboardService.CleanupAsync(_currentSettings.MaxHistoryItems, 0);
+                    if (deleted > 0)
+                    {
+                        // Reload list to reflect deletions
+                        await LoadClipboardItemsAsync();
+                    }
+                }
             });
         }
         catch (Exception ex)
@@ -368,9 +575,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     
     private async void OnCopyRequested(object? sender, ClipboardItem item)
     {
+        
         try
         {
             await _clipboardService.CopyToClipboardAsync(item);
+
+            
             StatusMessage = "Copied to clipboard";
         }
         catch (Exception ex)
@@ -383,7 +593,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            await _clipboardRepository.DeleteAsync(item.Id);
+            // Use ClipboardService to delete item and associated files
+            await _clipboardService.DeleteItemAsync(item);
             
             ClipboardItemViewModel? viewModel = ClipboardItems.FirstOrDefault(vm => vm.Id == item.Id);
             if (viewModel != null)

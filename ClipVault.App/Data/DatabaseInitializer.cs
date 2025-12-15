@@ -80,9 +80,43 @@ public static class DatabaseInitializer
                 Theme TEXT NOT NULL DEFAULT 'Dark',
                 WindowOpacity REAL NOT NULL DEFAULT 0.95,
                 MaxHistoryItems INTEGER NOT NULL DEFAULT 1000,
+                RetentionDays INTEGER NOT NULL DEFAULT 0,
                 StartWithSystem INTEGER NOT NULL DEFAULT 0,
+                StartMinimized INTEGER NOT NULL DEFAULT 0,
                 ShowInTaskbar INTEGER NOT NULL DEFAULT 1
             )");
+        
+        // Migration: Add new columns if they don't exist
+        await MigrateAppSettingsAsync(connection);
+    }
+    
+    private static async Task MigrateAppSettingsAsync(SqliteConnection connection)
+    {
+        try
+        {
+            // Check if RetentionDays column exists
+            var columns = await connection.QueryAsync<string>(
+                "SELECT name FROM pragma_table_info('AppSettings')");
+            var columnList = columns.ToList();
+            
+            if (!columnList.Contains("RetentionDays"))
+            {
+                await connection.ExecuteAsync(
+                    "ALTER TABLE AppSettings ADD COLUMN RetentionDays INTEGER NOT NULL DEFAULT 0");
+                Log.Information("Added RetentionDays column to AppSettings");
+            }
+            
+            if (!columnList.Contains("StartMinimized"))
+            {
+                await connection.ExecuteAsync(
+                    "ALTER TABLE AppSettings ADD COLUMN StartMinimized INTEGER NOT NULL DEFAULT 0");
+                Log.Information("Added StartMinimized column to AppSettings");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Migration check failed, columns may already exist");
+        }
     }
     
     private static async Task CreateIndexesAsync(SqliteConnection connection)
@@ -117,8 +151,8 @@ public static class DatabaseInitializer
         if (settingsExist == 0)
         {
             await connection.ExecuteAsync(@"
-                INSERT INTO AppSettings (Id, GlobalHotkey, Theme, WindowOpacity, MaxHistoryItems, StartWithSystem, ShowInTaskbar)
-                VALUES (1, 'Ctrl+Shift+V', 'Dark', 0.95, 1000, 0, 1)");
+                INSERT INTO AppSettings (Id, GlobalHotkey, Theme, WindowOpacity, MaxHistoryItems, RetentionDays, StartWithSystem, StartMinimized, ShowInTaskbar)
+                VALUES (1, 'Ctrl+Shift+V', 'Dark', 0.95, 1000, 0, 0, 0, 1)");
         }
     }
 }

@@ -11,11 +11,14 @@ public class TrayIconManager : IDisposable
 {
     private TrayIcon? _trayIcon;
     private readonly Window _mainWindow;
+    private readonly IWindowFocusManager _focusManager;
     private bool _disposed;
     
     public TrayIconManager(Window mainWindow)
     {
         _mainWindow = mainWindow;
+        _focusManager = WindowFocusManagerFactory.Create();
+
     }
     
     /// <summary>
@@ -23,7 +26,7 @@ public class TrayIconManager : IDisposable
     /// </summary>
     public void Initialize()
     {
-        NativeMenu menu = new NativeMenu();
+        NativeMenu menu = [];
         
         NativeMenuItem showItem = new NativeMenuItem("Show ClipVault");
         showItem.Click += (_, _) => ShowWindow();
@@ -46,15 +49,15 @@ public class TrayIconManager : IDisposable
     }
     
     /// <summary>
-    /// Shows the main window.
+    /// Shows the main window and gives it keyboard focus using platform-specific methods.
     /// </summary>
     public void ShowWindow()
     {
         _mainWindow.Show();
         _mainWindow.WindowState = WindowState.Normal;
-        _mainWindow.Activate();
-        _mainWindow.Topmost = true;
-        _mainWindow.Topmost = false; // Trick to bring to front
+        
+        // Use platform-specific focus manager for reliable focus
+        _focusManager.FocusWindow(_mainWindow);
     }
     
     /// <summary>

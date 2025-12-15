@@ -27,8 +27,8 @@ public class SettingsRepository : ISettingsRepository
         {
             settings = new AppSettings();
             await connection.ExecuteAsync(@"
-                INSERT INTO AppSettings (Id, GlobalHotkey, Theme, WindowOpacity, MaxHistoryItems, StartWithSystem, ShowInTaskbar)
-                VALUES (@Id, @GlobalHotkey, @Theme, @WindowOpacity, @MaxHistoryItems, @StartWithSystem, @ShowInTaskbar)",
+                INSERT INTO AppSettings (Id, GlobalHotkey, Theme, WindowOpacity, MaxHistoryItems, RetentionDays, StartWithSystem, StartMinimized, ShowInTaskbar)
+                VALUES (@Id, @GlobalHotkey, @Theme, @WindowOpacity, @MaxHistoryItems, @RetentionDays, @StartWithSystem, @StartMinimized, @ShowInTaskbar)",
                 new
                 {
                     settings.Id,
@@ -36,7 +36,9 @@ public class SettingsRepository : ISettingsRepository
                     settings.Theme,
                     settings.WindowOpacity,
                     settings.MaxHistoryItems,
+                    settings.RetentionDays,
                     StartWithSystem = settings.StartWithSystem ? 1 : 0,
+                    StartMinimized = settings.StartMinimized ? 1 : 0,
                     ShowInTaskbar = settings.ShowInTaskbar ? 1 : 0
                 });
         }
@@ -50,8 +52,14 @@ public class SettingsRepository : ISettingsRepository
         
         await connection.ExecuteAsync(@"
             UPDATE AppSettings 
-            SET GlobalHotkey = @GlobalHotkey, Theme = @Theme, WindowOpacity = @WindowOpacity,
-                MaxHistoryItems = @MaxHistoryItems, StartWithSystem = @StartWithSystem, ShowInTaskbar = @ShowInTaskbar
+            SET GlobalHotkey = @GlobalHotkey, 
+                Theme = @Theme, 
+                WindowOpacity = @WindowOpacity,
+                MaxHistoryItems = @MaxHistoryItems, 
+                RetentionDays = @RetentionDays,
+                StartWithSystem = @StartWithSystem, 
+                StartMinimized = @StartMinimized,
+                ShowInTaskbar = @ShowInTaskbar
             WHERE Id = @Id",
             new
             {
@@ -60,7 +68,9 @@ public class SettingsRepository : ISettingsRepository
                 settings.Theme,
                 settings.WindowOpacity,
                 settings.MaxHistoryItems,
+                settings.RetentionDays,
                 StartWithSystem = settings.StartWithSystem ? 1 : 0,
+                StartMinimized = settings.StartMinimized ? 1 : 0,
                 ShowInTaskbar = settings.ShowInTaskbar ? 1 : 0
             });
         

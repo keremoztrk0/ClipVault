@@ -10,7 +10,40 @@
     
     <Application.Resources>
         <ResourceDictionary>
-            <!-- Custom colors and brushes can be defined here -->
+            <ResourceDictionary.ThemeDictionaries>
+                <!-- Light Theme - Softer, less bright colors -->
+                <ResourceDictionary x:Key="Light">
+                    <!-- Main background colors - softer grays instead of pure white -->
+                    <Color x:Key="AppBackgroundColor">#F0F0F0</Color>
+                    <Color x:Key="CardBackgroundColor">#E8E8E8</Color>
+                    <Color x:Key="SidebarBackgroundColor">#E5E5E5</Color>
+                    <Color x:Key="HoverBackgroundColor">#DDDDDD</Color>
+                    <Color x:Key="BorderColor">#CCCCCC</Color>
+                    
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F0F0F0" />
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#E8E8E8" />
+                    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#E5E5E5" />
+                    <SolidColorBrush x:Key="HoverBackgroundBrush" Color="#DDDDDD" />
+                    <SolidColorBrush x:Key="BorderBrush" Color="#CCCCCC" />
+                    <SolidColorBrush x:Key="SearchBoxBackgroundBrush" Color="#FFFFFF" />
+                </ResourceDictionary>
+                
+                <!-- Dark Theme -->
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="AppBackgroundColor">#1E1E1E</Color>
+                    <Color x:Key="CardBackgroundColor">#2D2D2D</Color>
+                    <Color x:Key="SidebarBackgroundColor">#252525</Color>
+                    <Color x:Key="HoverBackgroundColor">#3D3D3D</Color>
+                    <Color x:Key="BorderColor">#404040</Color>
+                    
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#1E1E1E" />
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#2D2D2D" />
+                    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#252525" />
+                    <SolidColorBrush x:Key="HoverBackgroundBrush" Color="#3D3D3D" />
+                    <SolidColorBrush x:Key="BorderBrush" Color="#404040" />
+                    <SolidColorBrush x:Key="SearchBoxBackgroundBrush" Color="#383838" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
