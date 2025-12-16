@@ -137,6 +137,19 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
             // Capture change count before setting (we'll ignore changes up to and including ours)
             long preChangeCount = NativeMethods.GetPasteboardChangeCount();
 
+            // Handle image content natively
+            if (content is { Type: ClipboardContentType.Image, ImageData.Length: > 0 })
+            {
+                bool success = NativeMethods.SetImageDataToPasteboard(content.ImageData);
+                if (success)
+                {
+                    _lastChangeCount = NativeMethods.GetPasteboardChangeCount();
+                    Logger.Debug("Set image to pasteboard natively, changeCount: {ChangeCount}", _lastChangeCount);
+                    return;
+                }
+                Logger.Warning("Failed to set image natively, falling back to text");
+            }
+
             await Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 IClipboard? clipboard = _topLevel.Clipboard;
@@ -152,6 +165,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                         break;
 
                     case ClipboardContentType.Image:
+                        // Fallback: if native failed and we have a file path, set it as text
                         if (content.FilePaths is { Length: > 0 })
                             await clipboard.SetTextAsync(content.FilePaths[0]);
                         break;
@@ -277,6 +291,9 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
 
         [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
         private static partial IntPtr objc_msgSend(IntPtr receiver, IntPtr selector, IntPtr arg1, IntPtr arg2);
+        
+        [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+        private static partial IntPtr objc_msgSend_ptr_long(IntPtr receiver, IntPtr selector, IntPtr arg1, long arg2);
 
         // Foundation helpers
         [LibraryImport(FoundationLib)]
@@ -441,6 +458,57 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
             {
                 Log.Warning(ex, "Failed to get image data from pasteboard");
                 return null;
+            }
+        }
+
+        /// <summary>
+        ///     Sets image data (PNG) to the pasteboard.
+        /// </summary>
+        public static bool SetImageDataToPasteboard(byte[] imageData)
+        {
+            try
+            {
+                IntPtr pasteboard = objc_msgSend(NSPasteboardClass, GeneralPasteboardSel);
+                if (pasteboard == IntPtr.Zero) return false;
+
+                // Clear the pasteboard first
+                IntPtr clearSel = sel_registerName("clearContents");
+                objc_msgSend(pasteboard, clearSel);
+
+                // Create NSData from byte array
+                IntPtr nsDataClass = objc_getClass("NSData");
+                IntPtr dataWithBytesSel = sel_registerName("dataWithBytes:length:");
+                
+                // Pin the array and get pointer
+                IntPtr dataPtr = Marshal.AllocHGlobal(imageData.Length);
+                try
+                {
+                    Marshal.Copy(imageData, 0, dataPtr, imageData.Length);
+                    IntPtr nsData = objc_msgSend_ptr_long(nsDataClass, dataWithBytesSel, dataPtr, imageData.Length);
+                    
+                    if (nsData == IntPtr.Zero)
+                    {
+                        Log.Warning("Failed to create NSData from image bytes");
+                        return false;
+                    }
+
+                    // Set data for PNG type
+                    IntPtr pngType = CreateNSString("public.png");
+                    IntPtr setDataSel = sel_registerName("setData:forType:");
+                    IntPtr result = objc_msgSend(pasteboard, setDataSel, nsData, pngType);
+                    
+                    Log.Debug("Set image data to pasteboard: {Size} bytes, result: {Result}", imageData.Length, result != IntPtr.Zero);
+                    return true;
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(dataPtr);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to set image data to pasteboard");
+                return false;
             }
         }
 

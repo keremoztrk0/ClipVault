@@ -53,7 +53,8 @@ public class ClipboardService : IClipboardService, IDisposable
         {
             Type = item.ContentType,
             Text = item.TextContent,
-            FilePaths = item.FilePath?.Split(';', StringSplitOptions.RemoveEmptyEntries)
+            FilePaths = item.FilePath?.Split(';', StringSplitOptions.RemoveEmptyEntries),
+            ImageData = await LoadImageDataAsync(item)
         };
 
         await _monitor.SetContentAsync(content);
@@ -67,59 +68,17 @@ public class ClipboardService : IClipboardService, IDisposable
         try
         {
             // Delete associated file from storage if it exists and is in our Content folder
-            if (!string.IsNullOrEmpty(item.FilePath))
-            {
-                DeleteStoredFile(item.FilePath);
-            }
-            
+            if (!string.IsNullOrEmpty(item.FilePath)) DeleteStoredFile(item.FilePath);
+
             // Delete the database record
             await _clipboardRepository.DeleteAsync(item.Id);
-            
+
             Logger.Information("Deleted clipboard item {Id} and associated files", item.Id);
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "Error deleting clipboard item {Id}", item.Id);
             throw;
-        }
-    }
-    
-    /// <summary>
-    /// Deletes a stored content file if it exists within the app's content storage folder.
-    /// </summary>
-    private static void DeleteStoredFile(string filePath)
-    {
-        try
-        {
-            // Only delete files that are stored in our Content folder
-            string contentStoragePath = AppDbContext.GetContentStoragePath();
-            
-            // Handle multiple file paths (semicolon separated)
-            string[] paths = filePath.Split(';', StringSplitOptions.RemoveEmptyEntries);
-            
-            foreach (string path in paths)
-            {
-                string trimmedPath = path.Trim();
-                
-                // Security check: only delete files within our content storage folder
-                string fullPath = Path.GetFullPath(trimmedPath);
-                string storagePath = Path.GetFullPath(contentStoragePath);
-                
-                if (fullPath.StartsWith(storagePath, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
-                {
-                    File.Delete(fullPath);
-                    Logger.Debug("Deleted stored content file: {FilePath}", fullPath);
-                }
-                else
-                {
-                    Logger.Debug("Skipping file deletion (external file): {FilePath}", trimmedPath);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Warning(ex, "Failed to delete stored file: {FilePath}", filePath);
-            // Don't throw - file deletion failure shouldn't prevent item deletion
         }
     }
 
@@ -133,27 +92,20 @@ public class ClipboardService : IClipboardService, IDisposable
             if (retentionDays > 0)
             {
                 DateTime cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
-                
+
                 // Get items to delete first so we can clean up their files
                 List<ClipboardItem> itemsToDelete = await _clipboardRepository.GetItemsOlderThanAsync(cutoffDate);
-                
+
                 // Delete associated files
                 foreach (ClipboardItem item in itemsToDelete)
-                {
                     if (!string.IsNullOrEmpty(item.FilePath))
-                    {
                         DeleteStoredFile(item.FilePath);
-                    }
-                }
-                
+
                 // Now delete from database
                 int deletedByAge = await _clipboardRepository.DeleteOlderThanAsync(cutoffDate);
                 totalDeleted += deletedByAge;
-                
-                if (deletedByAge > 0)
-                {
-                    Logger.Information("Deleted {Count} items older than {Days} days", deletedByAge, retentionDays);
-                }
+
+                if (deletedByAge > 0) Logger.Information("Deleted {Count} items older than {Days} days", deletedByAge, retentionDays);
             }
 
             // Then, enforce max items limit
@@ -161,30 +113,20 @@ public class ClipboardService : IClipboardService, IDisposable
             {
                 // Get items to delete first so we can clean up their files
                 List<ClipboardItem> itemsToDelete = await _clipboardRepository.GetExcessItemsAsync(maxItems);
-                
+
                 // Delete associated files
                 foreach (ClipboardItem item in itemsToDelete)
-                {
                     if (!string.IsNullOrEmpty(item.FilePath))
-                    {
                         DeleteStoredFile(item.FilePath);
-                    }
-                }
-                
+
                 // Now delete from database
                 int deletedByLimit = await _clipboardRepository.DeleteExcessItemsAsync(maxItems);
                 totalDeleted += deletedByLimit;
-                
-                if (deletedByLimit > 0)
-                {
-                    Logger.Information("Deleted {Count} items to enforce max limit of {Max}", deletedByLimit, maxItems);
-                }
+
+                if (deletedByLimit > 0) Logger.Information("Deleted {Count} items to enforce max limit of {Max}", deletedByLimit, maxItems);
             }
 
-            if (totalDeleted > 0)
-            {
-                Logger.Information("Cleanup completed: {Total} items removed", totalDeleted);
-            }
+            if (totalDeleted > 0) Logger.Information("Cleanup completed: {Total} items removed", totalDeleted);
         }
         catch (Exception ex)
         {
@@ -204,6 +146,76 @@ public class ClipboardService : IClipboardService, IDisposable
 
         Logger.Debug("ClipboardService disposed");
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    ///     Loads image data from the stored file for image content types.
+    /// </summary>
+    private static async Task<byte[]?> LoadImageDataAsync(ClipboardItem item)
+    {
+        if (item.ContentType != ClipboardContentType.Image || string.IsNullOrEmpty(item.FilePath))
+            return null;
+
+        try
+        {
+            // Get the first file path (images are stored as single files)
+            string filePath = item.FilePath.Split(';', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+
+            if (!File.Exists(filePath))
+            {
+                Logger.Warning("Image file not found: {FilePath}", filePath);
+                return null;
+            }
+
+            byte[] data = await File.ReadAllBytesAsync(filePath);
+            Logger.Debug("Loaded image data from file: {FilePath}, Size: {Size} bytes", filePath, data.Length);
+            return data;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to load image data from file: {FilePath}", item.FilePath);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Deletes a stored content file if it exists within the app's content storage folder.
+    /// </summary>
+    private static void DeleteStoredFile(string filePath)
+    {
+        try
+        {
+            // Only delete files that are stored in our Content folder
+            string contentStoragePath = AppDbContext.GetContentStoragePath();
+
+            // Handle multiple file paths (semicolon separated)
+            string[] paths = filePath.Split(';', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string path in paths)
+            {
+                string trimmedPath = path.Trim();
+
+                // Security check: only delete files within our content storage folder
+                string fullPath = Path.GetFullPath(trimmedPath);
+                string storagePath = Path.GetFullPath(contentStoragePath);
+
+                if (fullPath.StartsWith(storagePath, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                    Logger.Debug("Deleted stored content file: {FilePath}", fullPath);
+                }
+                else
+                {
+                    Logger.Debug("Skipping file deletion (external file): {FilePath}", trimmedPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning(ex, "Failed to delete stored file: {FilePath}", filePath);
+            // Don't throw - file deletion failure shouldn't prevent item deletion
+        }
     }
 
     private async void OnClipboardChanged(object? sender, ClipboardChangedEventArgs e)
