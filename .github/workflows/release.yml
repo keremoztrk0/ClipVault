@@ -83,6 +83,9 @@ jobs:
         with:
           path: artifacts
 
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
       - name: Get version
         id: version
         run: |
@@ -100,5 +103,5 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            artifacts/**/*.zip
+              artifacts/*/*. zip
           generate_release_notes: true
