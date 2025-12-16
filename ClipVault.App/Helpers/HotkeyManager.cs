@@ -1,6 +1,6 @@
 using Serilog;
 using SharpHook;
-using SharpHook.Data;
+using SharpHook.Native;
 
 namespace ClipVault.App.Helpers;
 
@@ -11,13 +11,10 @@ public class HotkeyManager : IDisposable
 {
     private readonly SimpleGlobalHook _hook;
     private bool _disposed;
-    private bool _ctrlPressed;
-    private bool _shiftPressed;
-    private bool _altPressed;
-    private KeyCode _targetKeyCode = KeyCode.VcEnter;
-    private bool _requireCtrl = true;
-    private bool _requireShift = true;
-    private bool _requireAlt = false;
+    private KeyCode _targetKeyCode = KeyCode.VcV;
+    private bool _requireCtrl;
+    private bool _requireShift;
+    private bool _requireAlt;
     
     public event EventHandler? HotkeyPressed;
     
@@ -25,7 +22,6 @@ public class HotkeyManager : IDisposable
     {
         _hook = new SimpleGlobalHook();
         _hook.KeyPressed += OnKeyPressed;
-        _hook.KeyReleased += OnKeyReleased;
     }
     
     /// <summary>
@@ -57,6 +53,7 @@ public class HotkeyManager : IDisposable
         _requireCtrl = false;
         _requireShift = false;
         _requireAlt = false;
+        _targetKeyCode = KeyCode.VcUndefined;
         
         foreach (string part in parts)
         {
@@ -80,7 +77,7 @@ public class HotkeyManager : IDisposable
             }
         }
         
-        Log.Debug("Hotkey set: Ctrl={Ctrl}, Shift={Shift}, Alt={Alt}, Key={Key}", 
+        Log.Information("Hotkey configured: Ctrl={Ctrl}, Shift={Shift}, Alt={Alt}, Key={Key}", 
             _requireCtrl, _requireShift, _requireAlt, _targetKeyCode);
     }
     
@@ -159,58 +156,50 @@ public class HotkeyManager : IDisposable
     {
         KeyCode keyCode = e.Data.KeyCode;
         
-        // Track modifier keys
-        switch (keyCode)
+        // Ignore modifier key presses themselves
+        if (IsModifierKey(keyCode))
         {
-            case KeyCode.VcLeftControl:
-            case KeyCode.VcRightControl:
-                _ctrlPressed = true;
-                break;
-            case KeyCode.VcLeftShift:
-            case KeyCode.VcRightShift:
-                _shiftPressed = true;
-                break;
-            case KeyCode.VcLeftAlt:
-            case KeyCode.VcRightAlt:
-                _altPressed = true;
-                break;
+            return;
         }
         
-        // Check if our hotkey is pressed
-        if (keyCode == _targetKeyCode)
+        // Check if our target key is pressed
+        if (keyCode != _targetKeyCode)
         {
-            Log.Verbose("Target key pressed. Ctrl={Ctrl}/{ReqCtrl}, Shift={Shift}/{ReqShift}, Alt={Alt}/{ReqAlt}",
-                _ctrlPressed, _requireCtrl, _shiftPressed, _requireShift, _altPressed, _requireAlt);
-                
-            if (_requireCtrl == _ctrlPressed && 
-                _requireShift == _shiftPressed && 
-                _requireAlt == _altPressed)
-            {
-                Log.Information("Global hotkey triggered!");
-                HotkeyPressed?.Invoke(this, EventArgs.Empty);
-            }
+            return;
+        }
+        
+        // Use the Mask property from RawEvent to check which modifiers are currently held
+        ModifierMask mask = e.RawEvent.Mask;
+        
+        bool ctrlPressed = (mask & ModifierMask.Ctrl) != 0;
+        bool shiftPressed = (mask & ModifierMask.Shift) != 0;
+        bool altPressed = (mask & ModifierMask.Alt) != 0;
+        
+        Log.Verbose("Target key pressed. Ctrl={Ctrl}/{ReqCtrl}, Shift={Shift}/{ReqShift}, Alt={Alt}/{ReqAlt}",
+            ctrlPressed, _requireCtrl, shiftPressed, _requireShift, altPressed, _requireAlt);
+        
+        // Check exact match: required modifiers must be pressed, non-required must NOT be pressed
+        bool ctrlMatch = _requireCtrl == ctrlPressed;
+        bool shiftMatch = _requireShift == shiftPressed;
+        bool altMatch = _requireAlt == altPressed;
+        
+        if (ctrlMatch && shiftMatch && altMatch)
+        {
+            Log.Information("Global hotkey triggered!");
+            HotkeyPressed?.Invoke(this, EventArgs.Empty);
         }
     }
     
-    private void OnKeyReleased(object? sender, KeyboardHookEventArgs e)
+    private static bool IsModifierKey(KeyCode keyCode)
     {
-        KeyCode keyCode = e.Data.KeyCode;
-        
-        switch (keyCode)
+        return keyCode switch
         {
-            case KeyCode.VcLeftControl:
-            case KeyCode.VcRightControl:
-                _ctrlPressed = false;
-                break;
-            case KeyCode.VcLeftShift:
-            case KeyCode.VcRightShift:
-                _shiftPressed = false;
-                break;
-            case KeyCode.VcLeftAlt:
-            case KeyCode.VcRightAlt:
-                _altPressed = false;
-                break;
-        }
+            KeyCode.VcLeftControl or KeyCode.VcRightControl => true,
+            KeyCode.VcLeftShift or KeyCode.VcRightShift => true,
+            KeyCode.VcLeftAlt or KeyCode.VcRightAlt => true,
+            KeyCode.VcLeftMeta or KeyCode.VcRightMeta => true,
+            _ => false
+        };
     }
     
     public void Dispose()
@@ -219,7 +208,6 @@ public class HotkeyManager : IDisposable
         
         _disposed = true;
         _hook.KeyPressed -= OnKeyPressed;
-        _hook.KeyReleased -= OnKeyReleased;
         _hook.Dispose();
         
         GC.SuppressFinalize(this);
