@@ -174,6 +174,19 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
             // Set flag to ignore the next clipboard change (self-triggered)
             _ignoringNextChange = true;
 
+            // Handle image content natively
+            if (content.Type == ClipboardContentType.Image && content.ImageData is { Length: > 0 })
+            {
+                bool success = await SetImageToClipboardAsync(content.ImageData);
+                if (success)
+                {
+                    _lastContentHash = content.ComputeHash();
+                    Logger.Debug("Set image to clipboard natively");
+                    return;
+                }
+                Logger.Warning("Failed to set image natively, falling back to text");
+            }
+
             await Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 IClipboard? clipboard = _topLevel.Clipboard;
@@ -188,8 +201,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                         break;
 
                     case ClipboardContentType.Image:
-                        // For images, copy the file path as text (user can paste in file managers)
-                        // Or if we have the original image data, we'd need platform-specific code
+                        // Fallback: if native failed and we have a file path, set it as text
                         if (content.FilePaths is { Length: > 0 }) await clipboard.SetTextAsync(content.FilePaths[0]);
                         break;
 
@@ -217,6 +229,164 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
             });
         }
     }
+    
+    /// <summary>
+    /// Sets image data to the Windows clipboard using native Win32 APIs.
+    /// </summary>
+    private async Task<bool> SetImageToClipboardAsync(byte[] imageData)
+    {
+        try
+        {
+            return await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // Load the PNG data into an Avalonia Bitmap
+                using MemoryStream ms = new(imageData);
+                Bitmap bitmap = new(ms);
+                
+                // Convert to DIB format for Windows clipboard
+                byte[]? dibData = ConvertBitmapToDib(bitmap);
+                if (dibData == null) return false;
+                
+                // Open clipboard
+                if (!OpenClipboard(_hwnd))
+                {
+                    Logger.Warning("Failed to open clipboard");
+                    return false;
+                }
+                
+                try
+                {
+                    // Empty the clipboard
+                    if (!EmptyClipboard())
+                    {
+                        Logger.Warning("Failed to empty clipboard");
+                        return false;
+                    }
+                    
+                    // Allocate global memory for the DIB
+                    IntPtr hGlobal = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)dibData.Length);
+                    if (hGlobal == IntPtr.Zero)
+                    {
+                        Logger.Warning("Failed to allocate global memory");
+                        return false;
+                    }
+                    
+                    // Lock and copy data
+                    IntPtr pGlobal = GlobalLock(hGlobal);
+                    if (pGlobal == IntPtr.Zero)
+                    {
+                        GlobalFree(hGlobal);
+                        Logger.Warning("Failed to lock global memory");
+                        return false;
+                    }
+                    
+                    Marshal.Copy(dibData, 0, pGlobal, dibData.Length);
+                    GlobalUnlock(hGlobal);
+                    
+                    // Set clipboard data (CF_DIB = 8)
+                    if (SetClipboardData(CF_DIB, hGlobal) == IntPtr.Zero)
+                    {
+                        GlobalFree(hGlobal);
+                        Logger.Warning("Failed to set clipboard data");
+                        return false;
+                    }
+                    
+                    // Also set PNG format for apps that support it
+                    uint pngFormat = RegisterClipboardFormatW("PNG");
+                    if (pngFormat != 0)
+                    {
+                        IntPtr hPng = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)imageData.Length);
+                        if (hPng != IntPtr.Zero)
+                        {
+                            IntPtr pPng = GlobalLock(hPng);
+                            if (pPng != IntPtr.Zero)
+                            {
+                                Marshal.Copy(imageData, 0, pPng, imageData.Length);
+                                GlobalUnlock(hPng);
+                                SetClipboardData(pngFormat, hPng);
+                            }
+                        }
+                    }
+                    
+                    Logger.Debug("Image set to clipboard: DIB={DibSize}, PNG={PngSize}", dibData.Length, imageData.Length);
+                    return true;
+                }
+                finally
+                {
+                    CloseClipboard();
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to set image to clipboard");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// Converts an Avalonia Bitmap to DIB (Device Independent Bitmap) format.
+    /// </summary>
+    private static byte[]? ConvertBitmapToDib(Bitmap bitmap)
+    {
+        try
+        {
+            // Save bitmap to BMP format
+            using MemoryStream bmpStream = new();
+            bitmap.Save(bmpStream);
+            byte[] bmpData = bmpStream.ToArray();
+            
+            // BMP file format: 14-byte file header + DIB data
+            // We need to strip the 14-byte file header to get just the DIB
+            if (bmpData.Length <= 14) return null;
+            
+            // Return everything after the 14-byte BMP file header
+            byte[] dibData = new byte[bmpData.Length - 14];
+            Array.Copy(bmpData, 14, dibData, 0, dibData.Length);
+            
+            return dibData;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to convert bitmap to DIB");
+            return null;
+        }
+    }
+    
+    // Clipboard Win32 APIs
+    private const uint CF_DIB = 8;
+    private const uint GMEM_MOVEABLE = 0x0002;
+    
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool OpenClipboard(IntPtr hWndNewOwner);
+    
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseClipboard();
+    
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool EmptyClipboard();
+    
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+    
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial uint RegisterClipboardFormatW(string lpszFormat);
+    
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+    
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial IntPtr GlobalLock(IntPtr hMem);
+    
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GlobalUnlock(IntPtr hMem);
+    
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial IntPtr GlobalFree(IntPtr hMem);
 
     public void Dispose()
     {
