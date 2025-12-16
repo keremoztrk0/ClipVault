@@ -2,7 +2,9 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using ClipVault.App.Models;
 using Serilog;
@@ -137,17 +139,17 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
             // Capture change count before setting (we'll ignore changes up to and including ours)
             long preChangeCount = NativeMethods.GetPasteboardChangeCount();
 
-            // Handle image content natively
+            // Handle image content using Avalonia's DataObject
             if (content is { Type: ClipboardContentType.Image, ImageData.Length: > 0 })
             {
-                bool success = NativeMethods.SetImageDataToPasteboard(content.ImageData);
+                bool success = await SetImageToClipboardAsync(content.ImageData);
                 if (success)
                 {
                     _lastChangeCount = NativeMethods.GetPasteboardChangeCount();
-                    Logger.Debug("Set image to pasteboard natively, changeCount: {ChangeCount}", _lastChangeCount);
+                    Logger.Debug("Set image to pasteboard via Avalonia, changeCount: {ChangeCount}", _lastChangeCount);
                     return;
                 }
-                Logger.Warning("Failed to set image natively, falling back to text");
+                Logger.Warning("Failed to set image via Avalonia, falling back to text");
             }
 
             await Dispatcher.UIThread.InvokeAsync(async () =>
@@ -165,7 +167,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                         break;
 
                     case ClipboardContentType.Image:
-                        // Fallback: if native failed and we have a file path, set it as text
+                        // Fallback: if Avalonia failed and we have a file path, set it as text
                         if (content.FilePaths is { Length: > 0 })
                             await clipboard.SetTextAsync(content.FilePaths[0]);
                         break;
@@ -185,6 +187,49 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
         catch (Exception ex)
         {
             Logger.Error(ex, "Error setting clipboard content");
+        }
+    }
+    
+    private async Task<bool> SetImageToClipboardAsync(byte[] imageData)
+    {
+        if (_topLevel == null) return false;
+        
+        try
+        {
+            return await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                IClipboard? clipboard = _topLevel.Clipboard;
+                if (clipboard == null) return false;
+                
+                // Create a DataObject with the image data in multiple formats
+                var dataObject = new DataObject();
+                
+                // Set raw PNG data for various format names (macOS uses UTI types)
+                dataObject.Set("public.png", imageData);
+                dataObject.Set("PNG", imageData);
+                dataObject.Set("image/png", imageData);
+                
+                // Load the PNG into a Bitmap and convert for TIFF format (common on macOS)
+                using MemoryStream pngStream = new(imageData);
+                Bitmap bitmap = new(pngStream);
+                
+                using MemoryStream bmpStream = new();
+                bitmap.Save(bmpStream);
+                byte[] bmpData = bmpStream.ToArray();
+                
+                // Set as generic bitmap data
+                dataObject.Set("public.tiff", bmpData);
+                
+                await clipboard.SetDataObjectAsync(dataObject);
+                
+                Logger.Debug("Image set to clipboard via Avalonia DataObject: {Size} bytes", imageData.Length);
+                return true;
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to set image to clipboard");
+            return false;
         }
     }
 
@@ -458,57 +503,6 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
             {
                 Log.Warning(ex, "Failed to get image data from pasteboard");
                 return null;
-            }
-        }
-
-        /// <summary>
-        ///     Sets image data (PNG) to the pasteboard.
-        /// </summary>
-        public static bool SetImageDataToPasteboard(byte[] imageData)
-        {
-            try
-            {
-                IntPtr pasteboard = objc_msgSend(NSPasteboardClass, GeneralPasteboardSel);
-                if (pasteboard == IntPtr.Zero) return false;
-
-                // Clear the pasteboard first
-                IntPtr clearSel = sel_registerName("clearContents");
-                objc_msgSend(pasteboard, clearSel);
-
-                // Create NSData from byte array
-                IntPtr nsDataClass = objc_getClass("NSData");
-                IntPtr dataWithBytesSel = sel_registerName("dataWithBytes:length:");
-                
-                // Pin the array and get pointer
-                IntPtr dataPtr = Marshal.AllocHGlobal(imageData.Length);
-                try
-                {
-                    Marshal.Copy(imageData, 0, dataPtr, imageData.Length);
-                    IntPtr nsData = objc_msgSend_ptr_long(nsDataClass, dataWithBytesSel, dataPtr, imageData.Length);
-                    
-                    if (nsData == IntPtr.Zero)
-                    {
-                        Log.Warning("Failed to create NSData from image bytes");
-                        return false;
-                    }
-
-                    // Set data for PNG type
-                    IntPtr pngType = CreateNSString("public.png");
-                    IntPtr setDataSel = sel_registerName("setData:forType:");
-                    IntPtr result = objc_msgSend(pasteboard, setDataSel, nsData, pngType);
-                    
-                    Log.Debug("Set image data to pasteboard: {Size} bytes, result: {Result}", imageData.Length, result != IntPtr.Zero);
-                    return true;
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(dataPtr);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warning(ex, "Failed to set image data to pasteboard");
-                return false;
             }
         }
 
