@@ -7,18 +7,11 @@ namespace ClipVault.App.Data.Repositories;
 /// <summary>
 /// Repository implementation for clipboard groups using Dapper.
 /// </summary>
-public class GroupRepository : IGroupRepository
+public class GroupRepository(IDbConnectionFactory connectionFactory) : IGroupRepository
 {
-    private readonly AppDbContext _context;
-    
-    public GroupRepository(AppDbContext context)
-    {
-        _context = context;
-    }
-    
     public async Task<ClipboardGroup?> GetByIdAsync(Guid id)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         return await connection.QueryFirstOrDefaultAsync<ClipboardGroup>(
             "SELECT * FROM ClipboardGroups WHERE Id = @Id",
@@ -27,7 +20,7 @@ public class GroupRepository : IGroupRepository
     
     public async Task<List<ClipboardGroup>> GetAllAsync()
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         IEnumerable<ClipboardGroup> groups = await connection.QueryAsync<ClipboardGroup>(
             "SELECT * FROM ClipboardGroups ORDER BY SortOrder, Name");
@@ -37,16 +30,18 @@ public class GroupRepository : IGroupRepository
     
     public async Task<ClipboardGroup> AddAsync(ClipboardGroup group)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         // Set sort order to be at the end
         int maxOrder = await connection.ExecuteScalarAsync<int?>(
             "SELECT MAX(SortOrder) FROM ClipboardGroups") ?? 0;
         group.SortOrder = maxOrder + 1;
         
-        await connection.ExecuteAsync(@"
-            INSERT INTO ClipboardGroups (Id, Name, Color, SortOrder, CreatedAt)
-            VALUES (@Id, @Name, @Color, @SortOrder, @CreatedAt)",
+        await connection.ExecuteAsync("""
+
+                                                  INSERT INTO ClipboardGroups (Id, Name, Color, SortOrder, CreatedAt)
+                                                  VALUES (@Id, @Name, @Color, @SortOrder, @CreatedAt)
+                                      """,
             new
             {
                 Id = group.Id.ToString(),
@@ -61,12 +56,14 @@ public class GroupRepository : IGroupRepository
     
     public async Task<ClipboardGroup> UpdateAsync(ClipboardGroup group)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
-        await connection.ExecuteAsync(@"
-            UPDATE ClipboardGroups 
-            SET Name = @Name, Color = @Color, SortOrder = @SortOrder
-            WHERE Id = @Id",
+        await connection.ExecuteAsync("""
+
+                                                  UPDATE ClipboardGroups 
+                                                  SET Name = @Name, Color = @Color, SortOrder = @SortOrder
+                                                  WHERE Id = @Id
+                                      """,
             new
             {
                 Id = group.Id.ToString(),
@@ -80,7 +77,7 @@ public class GroupRepository : IGroupRepository
     
     public async Task DeleteAsync(Guid id)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         // Items in this group will have their GroupId set to null due to ON DELETE SET NULL
         await connection.ExecuteAsync(
@@ -90,8 +87,8 @@ public class GroupRepository : IGroupRepository
     
     public async Task ReorderAsync(List<Guid> orderedIds)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
-        using SqliteTransaction transaction = connection.BeginTransaction();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
+        await using SqliteTransaction transaction = connection.BeginTransaction();
         
         try
         {

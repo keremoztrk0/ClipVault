@@ -1,4 +1,4 @@
-using Serilog;
+using Microsoft.Extensions.Logging;
 using SharpHook;
 using SharpHook.Native;
 
@@ -36,7 +36,7 @@ public readonly record struct Hotkey
     /// <summary>
     /// Returns true if this hotkey has any modifiers set.
     /// </summary>
-    public bool HasModifiers => Win || Ctrl || Alt || Shift;
+    private bool HasModifiers => Win || Ctrl || Alt || Shift;
     
     /// <summary>
     /// Returns true if this is a valid hotkey (has a key and at least one modifier).
@@ -74,6 +74,7 @@ public readonly record struct Hotkey
 /// </summary>
 public class HotkeyManager : IDisposable
 {
+    private readonly ILogger<HotkeyManager> _logger;
     private readonly SimpleGlobalHook _hook;
     private readonly Dictionary<ushort, Action> _hotkeys = new();
     private readonly Lock _lock = new();
@@ -95,8 +96,9 @@ public class HotkeyManager : IDisposable
     /// </summary>
     public bool IsSuspended => _isSuspended;
     
-    public HotkeyManager()
+    public HotkeyManager(ILogger<HotkeyManager> logger)
     {
+        _logger = logger;
         _hook = new SimpleGlobalHook();
         _hook.KeyPressed += OnKeyPressed;
         _hook.KeyReleased += OnKeyReleased;
@@ -109,12 +111,12 @@ public class HotkeyManager : IDisposable
     {
         if (_isRunning)
         {
-            Log.Warning("HotkeyManager is already running");
+            _logger.LogWarning("HotkeyManager is already running");
             return Task.CompletedTask;
         }
         
         _isRunning = true;
-        Log.Information("HotkeyManager starting with {Count} registered hotkeys", _hotkeys.Count);
+        _logger.LogInformation("HotkeyManager starting with {Count} registered hotkeys", _hotkeys.Count);
         return _hook.RunAsync();
     }
     
@@ -127,7 +129,7 @@ public class HotkeyManager : IDisposable
         
         _isRunning = false;
         _hook.Dispose();
-        Log.Information("HotkeyManager stopped");
+        _logger.LogInformation("HotkeyManager stopped");
     }
     
     /// <summary>
@@ -137,7 +139,7 @@ public class HotkeyManager : IDisposable
     public void Suspend()
     {
         _isSuspended = true;
-        Log.Debug("HotkeyManager suspended");
+        _logger.LogDebug("HotkeyManager suspended");
     }
     
     /// <summary>
@@ -148,7 +150,7 @@ public class HotkeyManager : IDisposable
         _isSuspended = false;
         // Reset pressed keys state to avoid stale state
         _pressedKeys = default;
-        Log.Debug("HotkeyManager resumed");
+        _logger.LogDebug("HotkeyManager resumed");
     }
     
     /// <summary>
@@ -159,7 +161,7 @@ public class HotkeyManager : IDisposable
     {
         if (!hotkey.IsValid)
         {
-            Log.Warning("Attempted to register invalid hotkey: {Hotkey}", hotkey);
+            _logger.LogWarning("Attempted to register invalid hotkey: {Hotkey}", hotkey);
             return 0;
         }
         
@@ -167,7 +169,7 @@ public class HotkeyManager : IDisposable
         {
             ushort handle = hotkey.Handle;
             _hotkeys[handle] = callback;
-            Log.Information("Registered hotkey: {Hotkey} (handle: {Handle})", hotkey, handle);
+            _logger.LogInformation("Registered hotkey: {Hotkey} (handle: {Handle})", hotkey, handle);
             return handle;
         }
     }
@@ -181,7 +183,7 @@ public class HotkeyManager : IDisposable
         {
             if (_hotkeys.Remove(handle))
             {
-                Log.Information("Unregistered hotkey with handle: {Handle}", handle);
+                _logger.LogInformation("Unregistered hotkey with handle: {Handle}", handle);
             }
         }
     }
@@ -194,7 +196,7 @@ public class HotkeyManager : IDisposable
         using (_lock.EnterScope())
         {
             _hotkeys.Clear();
-            Log.Information("Unregistered all hotkeys");
+            _logger.LogInformation("Unregistered all hotkeys");
         }
     }
     
@@ -216,13 +218,13 @@ public class HotkeyManager : IDisposable
             }
         }
         
-        Log.Information("Hotkey set to: {Hotkey}", hotkey);
+        _logger.LogInformation("Hotkey set to: {Hotkey}", hotkey);
     }
     
     /// <summary>
     /// Parses a hotkey string into a Hotkey struct.
     /// </summary>
-    public static Hotkey ParseHotkeyString(string hotkeyString)
+    private static Hotkey ParseHotkeyString(string hotkeyString)
     {
         if (string.IsNullOrWhiteSpace(hotkeyString))
             return default;
@@ -296,29 +298,27 @@ public class HotkeyManager : IDisposable
         {
             hasMatch = _hotkeys.TryGetValue(pressedHandle, out callback);
         }
-        
-        if (hasMatch && callback != null)
+
+        if (!hasMatch || callback == null) return;
+        _logger.LogDebug("Hotkey matched: {Hotkey}", _pressedKeys);
+            
+        try
         {
-            Log.Debug("Hotkey matched: {Hotkey}", _pressedKeys);
+            callback.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error invoking hotkey callback");
+        }
             
-            try
-            {
-                callback.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error invoking hotkey callback");
-            }
+        // Suppress the event to prevent it from reaching other applications
+        e.SuppressEvent = true;
             
-            // Suppress the event to prevent it from reaching other applications
-            e.SuppressEvent = true;
-            
-            // If Win key was part of the hotkey, send a dummy key to prevent Start Menu
-            // This is a technique used by PowerToys
-            if (_pressedKeys.Win)
-            {
-                SuppressStartMenu();
-            }
+        // If Win key was part of the hotkey, send a dummy key to prevent Start Menu
+        // This is a technique used by PowerToys
+        if (_pressedKeys.Win)
+        {
+            SuppressStartMenu();
         }
     }
     
@@ -376,7 +376,7 @@ public class HotkeyManager : IDisposable
     /// Sends a dummy key event to prevent the Start Menu from activating
     /// after a Win key hotkey. This is a technique used by PowerToys.
     /// </summary>
-    private static void SuppressStartMenu()
+    private void SuppressStartMenu()
     {
         try
         {
@@ -390,7 +390,7 @@ public class HotkeyManager : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Failed to suppress Start Menu activation");
+            _logger.LogWarning(ex, "Failed to suppress Start Menu activation");
         }
     }
     
@@ -560,6 +560,6 @@ public class HotkeyManager : IDisposable
         }
         
         GC.SuppressFinalize(this);
-        Log.Debug("HotkeyManager disposed");
+        _logger.LogDebug("HotkeyManager disposed");
     }
 }

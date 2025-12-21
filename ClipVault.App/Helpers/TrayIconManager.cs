@@ -1,31 +1,42 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using ClipVault.App.Services;
 
 namespace ClipVault.App.Helpers;
 
 /// <summary>
 /// Manages the system tray icon functionality.
 /// </summary>
-public class TrayIconManager : IDisposable
+public class TrayIconManager : ITrayIconService
 {
     private TrayIcon? _trayIcon;
-    private readonly Window _mainWindow;
+    private Window? _mainWindow;
     private readonly IWindowFocusManager _focusManager;
     private bool _disposed;
     
-    public TrayIconManager(Window mainWindow)
-    {
-        _mainWindow = mainWindow;
-        _focusManager = WindowFocusManagerFactory.Create();
+    /// <inheritdoc/>
+    public event EventHandler? HotkeyPressed;
 
+    public TrayIconManager()
+    {
+        _focusManager = WindowFocusManagerFactory.Create();
     }
     
     /// <summary>
-    /// Initializes the tray icon.
+    /// Sets the main window reference. Must be called before Initialize.
     /// </summary>
+    public void SetMainWindow(Window window)
+    {
+        _mainWindow = window;
+    }
+    
+    /// <inheritdoc/>
     public void Initialize()
     {
+        if (_mainWindow == null)
+            throw new InvalidOperationException("Main window must be set before initializing tray icon.");
+        
         NativeMenu menu = [];
         
         NativeMenuItem showItem = new NativeMenuItem("Show ClipVault");
@@ -38,21 +49,37 @@ public class TrayIconManager : IDisposable
         exitItem.Click += (_, _) => ExitApplication();
         menu.Add(exitItem);
         
+        // Load the icon from the main window (which already has it set via XAML)
+        WindowIcon? icon = _mainWindow.Icon;
+        
         _trayIcon = new TrayIcon
         {
             ToolTipText = "ClipVault - Clipboard Manager",
             Menu = menu,
-            IsVisible = true
+            IsVisible = true,
+            Icon = icon
         };
         
         _trayIcon.Clicked += (_, _) => ToggleWindow();
     }
     
     /// <summary>
-    /// Shows the main window and gives it keyboard focus using platform-specific methods.
+    /// Raises the HotkeyPressed event. Called by HotkeyManager.
     /// </summary>
+    public void OnHotkeyPressed()
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            HotkeyPressed?.Invoke(this, EventArgs.Empty);
+            ToggleWindow();
+        });
+    }
+    
+    /// <inheritdoc/>
     public void ShowWindow()
     {
+        if (_mainWindow == null) return;
+        
         _mainWindow.Show();
         _mainWindow.WindowState = WindowState.Normal;
         
@@ -60,19 +87,17 @@ public class TrayIconManager : IDisposable
         _focusManager.FocusWindow(_mainWindow);
     }
     
-    /// <summary>
-    /// Hides the main window to tray.
-    /// </summary>
+    /// <inheritdoc/>
     public void HideWindow()
     {
-        _mainWindow.Hide();
+        _mainWindow?.Hide();
     }
     
-    /// <summary>
-    /// Toggles window visibility.
-    /// </summary>
+    /// <inheritdoc/>
     public void ToggleWindow()
     {
+        if (_mainWindow == null) return;
+        
         if (_mainWindow.IsVisible)
         {
             HideWindow();

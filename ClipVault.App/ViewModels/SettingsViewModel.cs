@@ -3,7 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using ClipVault.App.Data.Repositories;
 using ClipVault.App.Helpers;
 using ClipVault.App.Models;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
 namespace ClipVault.App.ViewModels;
 
@@ -12,8 +12,7 @@ namespace ClipVault.App.ViewModels;
 /// </summary>
 public partial class SettingsViewModel : ViewModelBase
 {
-    private static readonly ILogger Logger = Log.ForContext<SettingsViewModel>();
-    
+    private readonly ILogger<SettingsViewModel> _logger;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IStartupManager _startupManager;
     private AppSettings? _originalSettings;
@@ -29,9 +28,6 @@ public partial class SettingsViewModel : ViewModelBase
     
     [ObservableProperty]
     private bool _startWithSystem;
-    
-    [ObservableProperty]
-    private double _windowOpacity = 0.95;
     
     [ObservableProperty]
     private int _maxHistoryItems = 1000;
@@ -63,8 +59,9 @@ public partial class SettingsViewModel : ViewModelBase
     /// </summary>
     public int[] RetentionDayOptions { get; } = [0, 7, 30, 90, 180, 365];
     
-    public SettingsViewModel(ISettingsRepository settingsRepository)
+    public SettingsViewModel(ILogger<SettingsViewModel> logger, ISettingsRepository settingsRepository)
     {
+        _logger = logger;
         _settingsRepository = settingsRepository;
         _startupManager = StartupManagerFactory.Create();
     }
@@ -90,11 +87,9 @@ public partial class SettingsViewModel : ViewModelBase
             if (_originalSettings.StartWithSystem != actualStartupState)
             {
                 _originalSettings.StartWithSystem = actualStartupState;
-                Logger.Debug("Syncing StartWithSystem state: DB had {DbValue}, system has {SystemValue}", 
+                _logger.LogDebug("Syncing StartWithSystem state: DB had {DbValue}, system has {SystemValue}", 
                     !actualStartupState, actualStartupState);
             }
-            
-            WindowOpacity = _originalSettings.WindowOpacity;
             MaxHistoryItems = _originalSettings.MaxHistoryItems;
             RetentionDays = _originalSettings.RetentionDays;
             ShowInTaskbar = _originalSettings.ShowInTaskbar;
@@ -102,11 +97,11 @@ public partial class SettingsViewModel : ViewModelBase
             HasChanges = false;
             StatusMessage = string.Empty;
             
-            Logger.Debug("Settings loaded successfully");
+            _logger.LogDebug("Settings loaded successfully");
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Failed to load settings");
+            _logger.LogError(ex, "Failed to load settings");
             StatusMessage = "Failed to load settings";
         }
     }
@@ -126,14 +121,14 @@ public partial class SettingsViewModel : ViewModelBase
                 bool success = _startupManager.SetStartup(StartWithSystem);
                 if (!success)
                 {
-                    Logger.Warning("Failed to {Action} startup", StartWithSystem ? "enable" : "disable");
+                    _logger.LogWarning("Failed to {Action} startup", StartWithSystem ? "enable" : "disable");
                     StatusMessage = $"Failed to {(StartWithSystem ? "enable" : "disable")} startup with system";
                     // Don't save the setting if we couldn't apply it
                     StartWithSystem = _startupManager.IsStartupEnabled;
                 }
                 else
                 {
-                    Logger.Information("Startup {Action}", StartWithSystem ? "enabled" : "disabled");
+                    _logger.LogInformation("Startup {Action}", StartWithSystem ? "enabled" : "disabled");
                 }
             }
             
@@ -144,7 +139,6 @@ public partial class SettingsViewModel : ViewModelBase
                 Theme = SelectedTheme,
                 StartMinimized = StartMinimized,
                 StartWithSystem = StartWithSystem,
-                WindowOpacity = WindowOpacity,
                 MaxHistoryItems = MaxHistoryItems,
                 RetentionDays = RetentionDays,
                 ShowInTaskbar = ShowInTaskbar
@@ -155,11 +149,11 @@ public partial class SettingsViewModel : ViewModelBase
             HasChanges = false;
             StatusMessage = "Settings saved";
             
-            Logger.Information("Settings saved successfully");
+            _logger.LogInformation("Settings saved successfully");
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Failed to save settings");
+            _logger.LogError(ex, "Failed to save settings");
             StatusMessage = "Failed to save settings";
         }
     }
@@ -176,7 +170,6 @@ public partial class SettingsViewModel : ViewModelBase
         SelectedTheme = _originalSettings.Theme;
         StartMinimized = _originalSettings.StartMinimized;
         StartWithSystem = _originalSettings.StartWithSystem;
-        WindowOpacity = _originalSettings.WindowOpacity;
         MaxHistoryItems = _originalSettings.MaxHistoryItems;
         RetentionDays = _originalSettings.RetentionDays;
         ShowInTaskbar = _originalSettings.ShowInTaskbar;
@@ -197,7 +190,6 @@ public partial class SettingsViewModel : ViewModelBase
         SelectedTheme = defaults.Theme;
         StartMinimized = defaults.StartMinimized;
         StartWithSystem = defaults.StartWithSystem;
-        WindowOpacity = defaults.WindowOpacity;
         MaxHistoryItems = defaults.MaxHistoryItems;
         RetentionDays = defaults.RetentionDays;
         ShowInTaskbar = defaults.ShowInTaskbar;
@@ -232,7 +224,6 @@ public partial class SettingsViewModel : ViewModelBase
     partial void OnSelectedThemeChanged(string value) => CheckForChanges();
     partial void OnStartMinimizedChanged(bool value) => CheckForChanges();
     partial void OnStartWithSystemChanged(bool value) => CheckForChanges();
-    partial void OnWindowOpacityChanged(double value) => CheckForChanges();
     partial void OnMaxHistoryItemsChanged(int value) => CheckForChanges();
     partial void OnRetentionDaysChanged(int value) => CheckForChanges();
     partial void OnShowInTaskbarChanged(bool value) => CheckForChanges();
@@ -249,7 +240,6 @@ public partial class SettingsViewModel : ViewModelBase
                      SelectedTheme != _originalSettings.Theme ||
                      StartMinimized != _originalSettings.StartMinimized ||
                      StartWithSystem != _originalSettings.StartWithSystem ||
-                     Math.Abs(WindowOpacity - _originalSettings.WindowOpacity) > 0.001 ||
                      MaxHistoryItems != _originalSettings.MaxHistoryItems ||
                      RetentionDays != _originalSettings.RetentionDays ||
                      ShowInTaskbar != _originalSettings.ShowInTaskbar;

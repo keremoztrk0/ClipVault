@@ -103,30 +103,6 @@
                     </Grid>
                 </Border>
                 
-                <!-- Window Opacity -->
-                <Border Classes="settingRow">
-                    <Grid RowDefinitions="Auto,Auto">
-                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Window Opacity" Classes="settingLabel"/>
-                                <TextBlock Text="Adjust the transparency of the window" Classes="settingDescription"/>
-                            </StackPanel>
-                            <TextBlock Grid.Column="1" 
-                                       Text="{Binding WindowOpacity, StringFormat='{}{0:P0}'}"
-                                       VerticalAlignment="Center"
-                                       Width="50"
-                                       TextAlignment="Right"/>
-                        </Grid>
-                        <Slider Grid.Row="1" 
-                                Value="{Binding WindowOpacity}"
-                                Minimum="0.5"
-                                Maximum="1.0"
-                                TickFrequency="0.05"
-                                IsSnapToTickEnabled="True"
-                                Margin="0,8,0,0"/>
-                    </Grid>
-                </Border>
-                
                 <!-- Startup Section -->
                 <TextBlock Text="Startup" Classes="sectionHeader"/>
                 

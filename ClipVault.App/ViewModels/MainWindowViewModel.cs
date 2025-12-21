@@ -1,12 +1,12 @@
 using System.Collections.ObjectModel;
 using ClipVault.App.Data;
 using ClipVault.App.Data.Repositories;
+using ClipVault.App.Extensions;
 using ClipVault.App.Models;
 using ClipVault.App.Services;
-using ClipVault.App.Services.Clipboard;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
 namespace ClipVault.App.ViewModels;
 
@@ -15,13 +15,36 @@ namespace ClipVault.App.ViewModels;
 /// </summary>
 public partial class MainWindowViewModel : ViewModelBase, IDisposable
 {
-    private readonly AppDbContext _dbContext;
+    private readonly ILogger<MainWindowViewModel> _logger;
+    private readonly IDbConnectionFactory _connectionFactory;
     private readonly IClipboardRepository _clipboardRepository;
     private readonly IGroupRepository _groupRepository;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IClipboardService _clipboardService;
+    private readonly IDialogService _dialogService;
+    private readonly DatabaseInitializer _databaseInitializer;
     private AppSettings? _currentSettings;
     private bool _disposed;
+    
+    /// <summary>
+    /// Event raised when the window should be hidden (e.g., after copying an item).
+    /// </summary>
+    public event EventHandler? HideWindowRequested;
+    
+    /// <summary>
+    /// Event raised when selected item changes and should be scrolled into view.
+    /// </summary>
+    public event EventHandler<int>? ScrollItemIntoViewRequested;
+    
+    /// <summary>
+    /// Event raised when selected group changes and should be scrolled into view.
+    /// </summary>
+    public event EventHandler<int>? ScrollGroupIntoViewRequested;
+    
+    /// <summary>
+    /// Event raised when settings have been saved and applied.
+    /// </summary>
+    public event EventHandler? SettingsApplied;
     
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -51,26 +74,29 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     
     public ClipboardDetailViewModel DetailViewModel { get; }
     
-    public MainWindowViewModel()
+    public MainWindowViewModel(
+        ILogger<MainWindowViewModel> logger,
+        IDbConnectionFactory connectionFactory,
+        IClipboardRepository clipboardRepository,
+        IGroupRepository groupRepository,
+        ISettingsRepository settingsRepository,
+        IClipboardService clipboardService,
+        IDialogService dialogService,
+        DatabaseInitializer databaseInitializer)
     {
-        Log.Debug("MainWindowViewModel constructor starting");
+        _logger = logger;
+        _logger.LogDebug("MainWindowViewModel constructor starting");
         
-        // Initialize database context
-        _dbContext = new AppDbContext();
+        _connectionFactory = connectionFactory;
+        _clipboardRepository = clipboardRepository;
+        _groupRepository = groupRepository;
+        _settingsRepository = settingsRepository;
+        _clipboardService = clipboardService;
+        _dialogService = dialogService;
+        _databaseInitializer = databaseInitializer;
         
-        // Initialize repositories
-        _clipboardRepository = new ClipboardRepository(_dbContext);
-        _groupRepository = new GroupRepository(_dbContext);
-        _settingsRepository = new SettingsRepository(_dbContext);
-        
-        // Initialize clipboard service
-        IClipboardMonitor monitor = ClipboardMonitorFactory.Create();
-        Log.Debug("Created clipboard monitor: {MonitorType}", monitor.GetType().Name);
-        
-        MetadataExtractor metadataExtractor = new MetadataExtractor();
-        _clipboardService = new ClipboardService(monitor, _clipboardRepository, metadataExtractor);
         _clipboardService.ItemAdded += OnClipboardItemAdded;
-        Log.Debug("Subscribed to ItemAdded event");
+        _logger.LogDebug("Subscribed to ItemAdded event");
         
         // Initialize detail view model
         DetailViewModel = new ClipboardDetailViewModel();
@@ -78,19 +104,19 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         DetailViewModel.DeleteRequested += OnDeleteRequested;
         DetailViewModel.GroupChangeRequested += OnGroupChangeRequested;
         
-        Log.Debug("MainWindowViewModel constructor completed");
+        _logger.LogDebug("MainWindowViewModel constructor completed");
     }
     
     public async Task InitializeAsync()
     {
-        Log.Information("Initializing application");
+        _logger.LogInformation("Initializing application");
         IsLoading = true;
         StatusMessage = "Loading...";
         
         try
         {
             // Initialize database schema
-            await DatabaseInitializer.InitializeAsync(_dbContext);
+            await _databaseInitializer.InitializeAsync(_connectionFactory);
             
             // Load settings for cleanup
             _currentSettings = await _settingsRepository.GetSettingsAsync();
@@ -105,16 +131,16 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             await LoadClipboardItemsAsync();
             
             // Start clipboard monitoring
-            Log.Debug("Starting clipboard monitoring");
+            _logger.LogDebug("Starting clipboard monitoring");
             await _clipboardService.StartMonitoringAsync();
-            Log.Information("Clipboard monitoring started successfully");
+            _logger.LogInformation("Clipboard monitoring started successfully");
             
             StatusMessage = "Monitoring clipboard";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Error: {ex.Message}";
-            Log.Error(ex, "Initialization failed");
+            _logger.LogError(ex, "Initialization failed");
         }
         finally
         {
@@ -201,7 +227,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     
     partial void OnSearchTextChanged(string value)
     {
-        _ = SearchAsync();
+        SearchAsync().SafeFireAndForget();
     }
     
     partial void OnSelectedGroupChanged(GroupViewModel? value)
@@ -212,7 +238,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             group.IsSelected = group.Id == value?.Id;
         }
         
-        _ = LoadClipboardItemsAsync();
+        LoadClipboardItemsAsync().SafeFireAndForget();
     }
     
     partial void OnSelectedItemChanged(ClipboardItemViewModel? value)
@@ -254,13 +280,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Selects the next item in the clipboard list.
     /// </summary>
-    public void SelectNextItem()
+    [RelayCommand]
+    private void SelectNextItem()
     {
         if (ClipboardItems.Count == 0) return;
         
         if (SelectedItem == null)
         {
             SelectedItem = ClipboardItems[0];
+            ScrollItemIntoViewRequested?.Invoke(this, 0);
             return;
         }
         
@@ -278,24 +306,28 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         if (currentIndex >= 0 && currentIndex < ClipboardItems.Count - 1)
         {
             SelectedItem = ClipboardItems[currentIndex + 1];
+            ScrollItemIntoViewRequested?.Invoke(this, currentIndex + 1);
         }
         else if (currentIndex < 0 && ClipboardItems.Count > 0)
         {
             // SelectedItem not found in list, select first item
             SelectedItem = ClipboardItems[0];
+            ScrollItemIntoViewRequested?.Invoke(this, 0);
         }
     }
     
     /// <summary>
     /// Selects the previous item in the clipboard list.
     /// </summary>
-    public void SelectPreviousItem()
+    [RelayCommand]
+    private void SelectPreviousItem()
     {
         if (ClipboardItems.Count == 0) return;
         
         if (SelectedItem == null)
         {
             SelectedItem = ClipboardItems[0];
+            ScrollItemIntoViewRequested?.Invoke(this, 0);
             return;
         }
         
@@ -313,24 +345,28 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         if (currentIndex > 0)
         {
             SelectedItem = ClipboardItems[currentIndex - 1];
+            ScrollItemIntoViewRequested?.Invoke(this, currentIndex - 1);
         }
         else if (currentIndex < 0 && ClipboardItems.Count > 0)
         {
             // SelectedItem not found in list, select first item
             SelectedItem = ClipboardItems[0];
+            ScrollItemIntoViewRequested?.Invoke(this, 0);
         }
     }
     
     /// <summary>
     /// Selects the next group.
     /// </summary>
-    public void SelectNextGroup()
+    [RelayCommand]
+    private void SelectNextGroup()
     {
         if (Groups.Count == 0) return;
         
         if (SelectedGroup == null)
         {
             SelectedGroup = Groups[0];
+            ScrollGroupIntoViewRequested?.Invoke(this, 0);
             return;
         }
         
@@ -338,19 +374,22 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         if (currentIndex < Groups.Count - 1)
         {
             SelectedGroup = Groups[currentIndex + 1];
+            ScrollGroupIntoViewRequested?.Invoke(this, currentIndex + 1);
         }
     }
     
     /// <summary>
     /// Selects the previous group.
     /// </summary>
-    public void SelectPreviousGroup()
+    [RelayCommand]
+    private void SelectPreviousGroup()
     {
         if (Groups.Count == 0) return;
         
         if (SelectedGroup == null)
         {
             SelectedGroup = Groups[0];
+            ScrollGroupIntoViewRequested?.Invoke(this, 0);
             return;
         }
         
@@ -358,6 +397,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         if (currentIndex > 0)
         {
             SelectedGroup = Groups[currentIndex - 1];
+            ScrollGroupIntoViewRequested?.Invoke(this, currentIndex - 1);
         }
     }
     
@@ -377,7 +417,117 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             StatusMessage = $"Copy failed: {ex.Message}";
-            Log.Error(ex, "Failed to copy selected item to clipboard");
+            _logger.LogError(ex, "Failed to copy selected item to clipboard");
+        }
+    }
+    
+    /// <summary>
+    /// Copies the currently selected item to the clipboard and requests window hide.
+    /// </summary>
+    [RelayCommand]
+    private async Task CopyAndHideAsync()
+    {
+        if (SelectedItem == null) return;
+        
+        await CopySelectedItemAsync();
+        HideWindowRequested?.Invoke(this, EventArgs.Empty);
+    }
+    
+    /// <summary>
+    /// Requests the window to be hidden.
+    /// </summary>
+    [RelayCommand]
+    private void HideWindow()
+    {
+        HideWindowRequested?.Invoke(this, EventArgs.Empty);
+    }
+    
+    /// <summary>
+    /// Deletes an item with confirmation dialog.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteItemWithConfirmationAsync(ClipboardItemViewModel? item)
+    {
+        if (item == null) return;
+        
+        string previewText = item.PreviewText ?? string.Empty;
+        string preview = previewText.Length > 50 
+            ? previewText[..50] + "..." 
+            : previewText;
+        
+        bool confirmed = await _dialogService.ShowConfirmDialogAsync(
+            "Delete Item",
+            $"Are you sure you want to delete this item?\n\n\"{preview}\"",
+            "Delete");
+        
+        if (confirmed)
+        {
+            await DeleteItemAsync(item);
+        }
+    }
+    
+    /// <summary>
+    /// Deletes the selected item with confirmation.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteSelectedItemWithConfirmationAsync()
+    {
+        if (SelectedItem != null)
+        {
+            await DeleteItemWithConfirmationAsync(SelectedItem);
+        }
+    }
+    
+    /// <summary>
+    /// Shows the add group dialog and creates a new group.
+    /// </summary>
+    [RelayCommand]
+    private async Task AddGroupAsync()
+    {
+        var result = await _dialogService.ShowAddGroupDialogAsync();
+        
+        if (result != null)
+        {
+            await AddGroupCoreAsync(result.Name, result.Color);
+        }
+    }
+    
+    /// <summary>
+    /// Deletes a group with confirmation dialog.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteGroupWithConfirmationAsync(GroupViewModel? group)
+    {
+        if (group == null || group.Id == Guid.Empty) return; // Can't delete "All" group
+        
+        bool confirmed = await _dialogService.ShowConfirmDialogAsync(
+            "Delete Group",
+            $"Are you sure you want to delete the group \"{group.Name}\"?\n\nItems in this group will not be deleted, they will be moved to \"All\".",
+            "Delete");
+        
+        if (confirmed)
+        {
+            await DeleteGroupAsync(group);
+        }
+    }
+    
+    /// <summary>
+    /// Opens the settings dialog and applies changes if saved.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSettingsAsync()
+    {
+        bool saved = await _dialogService.ShowSettingsDialogAsync();
+        
+        if (saved)
+        {
+            // Reload settings in the ViewModel
+            await ReloadSettingsAsync();
+            
+            // Notify listeners (e.g., MainWindow) that settings were applied
+            SettingsApplied?.Invoke(this, EventArgs.Empty);
+            
+            StatusMessage = "Settings saved and applied";
         }
     }
     
@@ -403,7 +553,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             StatusMessage = $"Delete failed: {ex.Message}";
-            Log.Error(ex, "Failed to delete clipboard item {ItemId}", item.Id);
+            _logger.LogError(ex, "Failed to delete clipboard item {ItemId}", item.Id);
         }
     }
     
@@ -438,15 +588,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             StatusMessage = $"Move failed: {ex.Message}";
-            Log.Error(ex, "Failed to move clipboard item {ItemId} to group {GroupId}", item.Id, group?.Id);
+            _logger.LogError(ex, "Failed to move clipboard item {ItemId} to group {GroupId}", item.Id, group?.Id);
         }
     }
     
-    public async Task AddGroupAsync(string name, string color)
+    public async Task AddGroupCoreAsync(string name, string color)
     {
         if (string.IsNullOrWhiteSpace(name)) return;
         
-        ClipboardGroup group = new ClipboardGroup
+        ClipboardGroup group = new()
         {
             Name = name.Trim(),
             Color = color
@@ -480,7 +630,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private void FilterByType(ClipboardContentType? contentType)
     {
         FilterContentType = contentType;
-        _ = LoadClipboardItemsAsync();
+        LoadClipboardItemsAsync().SafeFireAndForget();
     }
     
     [RelayCommand]
@@ -508,13 +658,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             
             if (deleted > 0)
             {
-                Log.Information("Cleanup removed {Count} items (MaxItems={Max}, RetentionDays={Days})",
+                _logger.LogInformation("Cleanup removed {Count} items (MaxItems={Max}, RetentionDays={Days})",
                     deleted, _currentSettings.MaxHistoryItems, _currentSettings.RetentionDays);
             }
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to run cleanup");
+            _logger.LogError(ex, "Failed to run cleanup");
         }
     }
     
@@ -526,12 +676,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         try
         {
             _currentSettings = await _settingsRepository.GetSettingsAsync();
-            Log.Debug("Settings reloaded: MaxHistoryItems={Max}, RetentionDays={Days}",
+            _logger.LogDebug("Settings reloaded: MaxHistoryItems={Max}, RetentionDays={Days}",
                 _currentSettings.MaxHistoryItems, _currentSettings.RetentionDays);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to reload settings");
+            _logger.LogError(ex, "Failed to reload settings");
         }
     }
 
@@ -539,11 +689,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            Log.Debug("Clipboard item received: {ItemId}, Type: {ContentType}", item.Id, item.ContentType);
+            _logger.LogDebug("Clipboard item received: {ItemId}, Type: {ContentType}", item.Id, item.ContentType);
             
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
-                Log.Verbose("Adding item to UI collection");
+                _logger.LogTrace("Adding item to UI collection");
                 
                 // Add to top of list
                 ClipboardItems.Insert(0, new ClipboardItemViewModel(item));
@@ -552,7 +702,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 await UpdateGroupCountsAsync();
                 
                 StatusMessage = $"New item captured: {item.ContentType}";
-                Log.Debug("Item added to UI, total items: {TotalItems}", ClipboardItems.Count);
+                _logger.LogDebug("Item added to UI, total items: {TotalItems}", ClipboardItems.Count);
                 
                 // Run cleanup to enforce max items limit
                 if (_currentSettings?.MaxHistoryItems > 0)
@@ -568,19 +718,16 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error handling clipboard item added event");
+            _logger.LogError(ex, "Error handling clipboard item added event");
             StatusMessage = $"Error adding item: {ex.Message}";
         }
     }
     
     private async void OnCopyRequested(object? sender, ClipboardItem item)
     {
-        
         try
         {
             await _clipboardService.CopyToClipboardAsync(item);
-
-            
             StatusMessage = "Copied to clipboard";
         }
         catch (Exception ex)
@@ -657,7 +804,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             disposableService.Dispose();
         }
         
-        _dbContext.Dispose();
+        _connectionFactory.Dispose();
         
         GC.SuppressFinalize(this);
     }

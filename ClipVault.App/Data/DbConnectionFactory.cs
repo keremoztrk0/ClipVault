@@ -5,28 +5,24 @@ namespace ClipVault.App.Data;
 /// <summary>
 /// Database connection factory for ClipVault using SQLite.
 /// </summary>
-public class AppDbContext : IDisposable
+public class DbConnectionFactory : IDbConnectionFactory
 {
     private readonly string _connectionString;
     private bool _disposed;
     
-    public AppDbContext()
+    public DbConnectionFactory()
     {
         string dbPath = GetDatabasePath();
         _connectionString = $"Data Source={dbPath}";
     }
     
-    /// <summary>
-    /// Creates a new database connection.
-    /// </summary>
+    /// <inheritdoc/>
     public SqliteConnection CreateConnection()
     {
         return new SqliteConnection(_connectionString);
     }
     
-    /// <summary>
-    /// Gets an open database connection.
-    /// </summary>
+    /// <inheritdoc/>
     public async Task<SqliteConnection> GetOpenConnectionAsync()
     {
         SqliteConnection connection = CreateConnection();

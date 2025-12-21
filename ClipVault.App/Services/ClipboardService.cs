@@ -2,7 +2,7 @@ using ClipVault.App.Data;
 using ClipVault.App.Data.Repositories;
 using ClipVault.App.Models;
 using ClipVault.App.Services.Clipboard;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
 namespace ClipVault.App.Services;
 
@@ -11,7 +11,7 @@ namespace ClipVault.App.Services;
 /// </summary>
 public class ClipboardService : IClipboardService, IDisposable
 {
-    private static readonly ILogger Logger = Log.ForContext<ClipboardService>();
+    private readonly ILogger<ClipboardService> _logger;
     private readonly IClipboardRepository _clipboardRepository;
     private readonly IMetadataExtractor _metadataExtractor;
 
@@ -21,14 +21,16 @@ public class ClipboardService : IClipboardService, IDisposable
     public ClipboardService(
         IClipboardMonitor monitor,
         IClipboardRepository clipboardRepository,
-        IMetadataExtractor metadataExtractor)
+        IMetadataExtractor metadataExtractor,
+        ILogger<ClipboardService> logger)
     {
         _monitor = monitor;
         _clipboardRepository = clipboardRepository;
         _metadataExtractor = metadataExtractor;
+        _logger = logger;
 
         _monitor.ClipboardChanged += OnClipboardChanged;
-        Logger.Debug("ClipboardService initialized");
+        _logger.LogDebug("ClipboardService initialized");
     }
 
     public event EventHandler<ClipboardItem>? ItemAdded;
@@ -37,13 +39,13 @@ public class ClipboardService : IClipboardService, IDisposable
 
     public async Task StartMonitoringAsync()
     {
-        Logger.Information("Starting clipboard monitoring");
+        _logger.LogInformation("Starting clipboard monitoring");
         await _monitor.StartAsync();
     }
 
     public async Task StopMonitoringAsync()
     {
-        Logger.Information("Stopping clipboard monitoring");
+        _logger.LogInformation("Stopping clipboard monitoring");
         await _monitor.StopAsync();
     }
 
@@ -60,7 +62,7 @@ public class ClipboardService : IClipboardService, IDisposable
         await _monitor.SetContentAsync(content);
         await _clipboardRepository.UpdateLastAccessedAsync(item.Id);
 
-        Logger.Debug("Copied item to clipboard: {Id}", item.Id);
+        _logger.LogDebug("Copied item to clipboard: {Id}", item.Id);
     }
 
     public async Task DeleteItemAsync(ClipboardItem item)
@@ -73,11 +75,11 @@ public class ClipboardService : IClipboardService, IDisposable
             // Delete the database record
             await _clipboardRepository.DeleteAsync(item.Id);
 
-            Logger.Information("Deleted clipboard item {Id} and associated files", item.Id);
+            _logger.LogInformation("Deleted clipboard item {Id} and associated files", item.Id);
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error deleting clipboard item {Id}", item.Id);
+            _logger.LogError(ex, "Error deleting clipboard item {Id}", item.Id);
             throw;
         }
     }
@@ -105,7 +107,7 @@ public class ClipboardService : IClipboardService, IDisposable
                 int deletedByAge = await _clipboardRepository.DeleteOlderThanAsync(cutoffDate);
                 totalDeleted += deletedByAge;
 
-                if (deletedByAge > 0) Logger.Information("Deleted {Count} items older than {Days} days", deletedByAge, retentionDays);
+                if (deletedByAge > 0) _logger.LogInformation("Deleted {Count} items older than {Days} days", deletedByAge, retentionDays);
             }
 
             // Then, enforce max items limit
@@ -123,14 +125,14 @@ public class ClipboardService : IClipboardService, IDisposable
                 int deletedByLimit = await _clipboardRepository.DeleteExcessItemsAsync(maxItems);
                 totalDeleted += deletedByLimit;
 
-                if (deletedByLimit > 0) Logger.Information("Deleted {Count} items to enforce max limit of {Max}", deletedByLimit, maxItems);
+                if (deletedByLimit > 0) _logger.LogInformation("Deleted {Count} items to enforce max limit of {Max}", deletedByLimit, maxItems);
             }
 
-            if (totalDeleted > 0) Logger.Information("Cleanup completed: {Total} items removed", totalDeleted);
+            if (totalDeleted > 0) _logger.LogInformation("Cleanup completed: {Total} items removed", totalDeleted);
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error during clipboard cleanup");
+            _logger.LogError(ex, "Error during clipboard cleanup");
         }
 
         return totalDeleted;
@@ -144,14 +146,14 @@ public class ClipboardService : IClipboardService, IDisposable
         _monitor.ClipboardChanged -= OnClipboardChanged;
         _monitor.Dispose();
 
-        Logger.Debug("ClipboardService disposed");
+        _logger.LogDebug("ClipboardService disposed");
         GC.SuppressFinalize(this);
     }
 
     /// <summary>
     ///     Loads image data from the stored file for image content types.
     /// </summary>
-    private static async Task<byte[]?> LoadImageDataAsync(ClipboardItem item)
+    private async Task<byte[]?> LoadImageDataAsync(ClipboardItem item)
     {
         if (item.ContentType != ClipboardContentType.Image || string.IsNullOrEmpty(item.FilePath))
             return null;
@@ -163,17 +165,17 @@ public class ClipboardService : IClipboardService, IDisposable
 
             if (!File.Exists(filePath))
             {
-                Logger.Warning("Image file not found: {FilePath}", filePath);
+                _logger.LogWarning("Image file not found: {FilePath}", filePath);
                 return null;
             }
 
             byte[] data = await File.ReadAllBytesAsync(filePath);
-            Logger.Debug("Loaded image data from file: {FilePath}, Size: {Size} bytes", filePath, data.Length);
+            _logger.LogDebug("Loaded image data from file: {FilePath}, Size: {Size} bytes", filePath, data.Length);
             return data;
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Failed to load image data from file: {FilePath}", item.FilePath);
+            _logger.LogError(ex, "Failed to load image data from file: {FilePath}", item.FilePath);
         }
 
         return null;
@@ -182,12 +184,12 @@ public class ClipboardService : IClipboardService, IDisposable
     /// <summary>
     ///     Deletes a stored content file if it exists within the app's content storage folder.
     /// </summary>
-    private static void DeleteStoredFile(string filePath)
+    private void DeleteStoredFile(string filePath)
     {
         try
         {
             // Only delete files that are stored in our Content folder
-            string contentStoragePath = AppDbContext.GetContentStoragePath();
+            string contentStoragePath = DbConnectionFactory.GetContentStoragePath();
 
             // Handle multiple file paths (semicolon separated)
             string[] paths = filePath.Split(';', StringSplitOptions.RemoveEmptyEntries);
@@ -203,31 +205,31 @@ public class ClipboardService : IClipboardService, IDisposable
                 if (fullPath.StartsWith(storagePath, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
                 {
                     File.Delete(fullPath);
-                    Logger.Debug("Deleted stored content file: {FilePath}", fullPath);
+                    _logger.LogDebug("Deleted stored content file: {FilePath}", fullPath);
                 }
                 else
                 {
-                    Logger.Debug("Skipping file deletion (external file): {FilePath}", trimmedPath);
+                    _logger.LogDebug("Skipping file deletion (external file): {FilePath}", trimmedPath);
                 }
             }
         }
         catch (Exception ex)
         {
-            Logger.Warning(ex, "Failed to delete stored file: {FilePath}", filePath);
+            _logger.LogWarning(ex, "Failed to delete stored file: {FilePath}", filePath);
             // Don't throw - file deletion failure shouldn't prevent item deletion
         }
     }
 
     private async void OnClipboardChanged(object? sender, ClipboardChangedEventArgs e)
     {
-        Logger.Debug("Clipboard changed event received: {Type}", e.Content.Type);
+        _logger.LogDebug("Clipboard changed event received: {Type}", e.Content.Type);
         try
         {
             await ProcessClipboardContentAsync(e);
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error processing clipboard content");
+            _logger.LogError(ex, "Error processing clipboard content");
         }
     }
 
@@ -236,18 +238,18 @@ public class ClipboardService : IClipboardService, IDisposable
         ClipboardContent content = e.Content;
         string? contentHash = content.ComputeHash();
 
-        Logger.Debug("Processing content with hash: {Hash}", contentHash?.Substring(0, 8));
+        _logger.LogDebug("Processing content with hash: {Hash}", contentHash?.Substring(0, 8));
 
         // Check for duplicate
         ClipboardItem? existing = await _clipboardRepository.GetByHashAsync(contentHash ?? string.Empty);
         if (existing != null)
         {
-            Logger.Debug("Duplicate content found, updating last accessed time");
+            _logger.LogDebug("Duplicate content found, updating last accessed time");
             await _clipboardRepository.UpdateLastAccessedAsync(existing.Id);
             return;
         }
 
-        Logger.Debug("Creating new clipboard item");
+        _logger.LogDebug("Creating new clipboard item");
 
         // Create new clipboard item
         ClipboardItem item = new()
@@ -278,7 +280,7 @@ public class ClipboardService : IClipboardService, IDisposable
 
         // Save the item with its metadata
         await _clipboardRepository.AddAsync(item);
-        Logger.Information("Clipboard item saved: {Id}, Type: {Type}", item.Id, item.ContentType);
+        _logger.LogInformation("Clipboard item saved: {Id}, Type: {Type}", item.Id, item.ContentType);
 
         // Notify listeners
         ItemAdded?.Invoke(this, item);
@@ -308,14 +310,14 @@ public class ClipboardService : IClipboardService, IDisposable
         return string.Join(" ", text.Split(default(string[]), StringSplitOptions.RemoveEmptyEntries));
     }
 
-    private static async Task<string> SaveContentToFileAsync(byte[] data, string extension)
+    private async Task<string> SaveContentToFileAsync(byte[] data, string extension)
     {
-        string storagePath = AppDbContext.GetContentStoragePath();
+        string storagePath = DbConnectionFactory.GetContentStoragePath();
         string fileName = $"{Guid.NewGuid()}{extension}";
         string filePath = Path.Combine(storagePath, fileName);
 
         await File.WriteAllBytesAsync(filePath, data);
-        Logger.Debug("Content saved to file: {FilePath}", filePath);
+        _logger.LogDebug("Content saved to file: {FilePath}", filePath);
 
         return filePath;
     }

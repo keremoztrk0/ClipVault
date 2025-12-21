@@ -5,7 +5,7 @@ using ClipVault.App.Controls;
 using ClipVault.App.Data.Repositories;
 using ClipVault.App.Helpers;
 using ClipVault.App.ViewModels;
-using System.Globalization;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ClipVault.App.Views;
 
@@ -31,10 +31,21 @@ public partial class SettingsWindow : Window
         InitializeComponent();
     }
     
-    public SettingsWindow(ISettingsRepository settingsRepository, HotkeyManager? hotkeyManager = null)
+    public SettingsWindow(HotkeyManager? hotkeyManager = null)
     {
         InitializeComponent();
-        DataContext = new SettingsViewModel(settingsRepository);
+        
+        // Get SettingsViewModel from DI (already has logger and repository injected)
+        try
+        {
+            DataContext = App.Services.GetRequiredService<SettingsViewModel>();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to resolve SettingsViewModel from DI: {ex}");
+            throw;
+        }
+        
         _hotkeyManager = hotkeyManager;
         
         // Wire up hotkey recorder events after control is loaded

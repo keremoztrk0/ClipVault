@@ -9,7 +9,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using ClipVault.App.Models;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
 #pragma warning disable CS0618 // Type or member is obsolete (Avalonia clipboard API)
 
@@ -19,10 +19,9 @@ namespace ClipVault.App.Services.Clipboard;
 ///     Windows-specific clipboard monitor using native Win32 clipboard listener API.
 ///     Uses AddClipboardFormatListener for event-based notifications instead of polling.
 /// </summary>
-public partial class WindowsClipboardMonitor : IClipboardMonitor
+public partial class WindowsClipboardMonitor(ILogger<WindowsClipboardMonitor> logger) : IClipboardMonitor
 {
     private const int WM_CLIPBOARDUPDATE = 0x031D;
-    private static readonly ILogger Logger = Log.ForContext<WindowsClipboardMonitor>();
 
     private bool _disposed;
     private IntPtr _hwnd;
@@ -39,38 +38,38 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
     {
         if (IsMonitoring) return;
 
-        Logger.Information("Starting clipboard monitor (event-based)");
+        logger.LogInformation("Starting clipboard monitor (event-based)");
 
         // Get TopLevel from Avalonia - must be done on UI thread
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
             _topLevel = desktop.MainWindow;
-            Logger.Debug("TopLevel acquired: {HasTopLevel}", _topLevel != null);
+            logger.LogDebug("TopLevel acquired: {HasTopLevel}", _topLevel != null);
 
             // Get the native window handle
             if (_topLevel is not Window window) return;
             IPlatformHandle? platformHandle = window.TryGetPlatformHandle();
             if (platformHandle == null) return;
             _hwnd = platformHandle.Handle;
-            Logger.Debug("Window handle acquired: {Handle}", _hwnd);
+            logger.LogDebug("Window handle acquired: {Handle}", _hwnd);
         });
 
         if (_hwnd == IntPtr.Zero)
         {
-            Logger.Warning("Could not get window handle, falling back to polling");
+            logger.LogWarning("Could not get window handle, falling back to polling");
             await StartPollingFallbackAsync();
             return;
         }
 
-        // Create native window handler for receiving messages
-        _nativeHandler = new NativeWindowHandler(_hwnd, OnClipboardUpdate);
+// Create native window handler for receiving messages
+        _nativeHandler = new NativeWindowHandler(_hwnd, OnClipboardUpdate, logger);
 
         // Register for clipboard notifications
         if (AddClipboardFormatListener(_hwnd))
         {
             IsMonitoring = true;
-            Logger.Information("Clipboard listener registered successfully");
+            logger.LogInformation("Clipboard listener registered successfully");
 
             // Capture current clipboard state
             await CaptureCurrentClipboardAsync();
@@ -78,7 +77,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         else
         {
             int error = Marshal.GetLastWin32Error();
-            Logger.Warning("Failed to register clipboard listener (error: {Error}), falling back to polling", error);
+            logger.LogWarning("Failed to register clipboard listener (error: {Error}), falling back to polling", error);
             await StartPollingFallbackAsync();
         }
     }
@@ -88,7 +87,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         if (_hwnd != IntPtr.Zero && IsMonitoring)
         {
             RemoveClipboardFormatListener(_hwnd);
-            Logger.Information("Clipboard listener removed");
+            logger.LogInformation("Clipboard listener removed");
         }
 
         _nativeHandler?.Dispose();
@@ -111,7 +110,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
 
                 // Check for files first
                 string[]? formats = await clipboard.GetFormatsAsync();
-                Logger.Debug("Available clipboard formats: {Formats}", string.Join(", ", formats ?? []));
+                logger.LogDebug("Available clipboard formats: {Formats}", string.Join(", ", formats ?? []));
 
                 if (formats != null && (formats.Contains("Files") || formats.Contains("FileNames")))
                     if (await clipboard.GetDataAsync("FileNames") is IEnumerable<string> files)
@@ -120,7 +119,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                         if (filePaths.Length > 0)
                         {
                             ClipboardContentType contentType = DetermineFileContentType(filePaths);
-                            Logger.Debug("Clipboard contains files: {Count}, Type: {Type}", filePaths.Length, contentType);
+                            logger.LogDebug("Clipboard contains files: {Count}, Type: {Type}", filePaths.Length, contentType);
                             return new ClipboardContent
                             {
                                 Type = contentType,
@@ -134,11 +133,11 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                                         formats.Contains("image/png") || formats.Contains("image/bmp") ||
                                         formats.Contains("DeviceIndependentBitmap")))
                 {
-                    Logger.Debug("Clipboard contains image data");
+                    logger.LogDebug("Clipboard contains image data");
                     byte[]? imageData = await TryGetImageDataAsync(clipboard, formats);
                     if (imageData is { Length: > 0 })
                     {
-                        Logger.Information("Retrieved image from clipboard: {Size} bytes", imageData.Length);
+                        logger.LogInformation("Retrieved image from clipboard: {Size} bytes", imageData.Length);
                         return new ClipboardContent
                         {
                             Type = ClipboardContentType.Image,
@@ -161,7 +160,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error getting clipboard content");
+            logger.LogError(ex, "Error getting clipboard content");
             return null;
         }
     }
@@ -182,10 +181,10 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                 if (success)
                 {
                     _lastContentHash = content.ComputeHash();
-                    Logger.Debug("Set image to clipboard natively");
+                    logger.LogDebug("Set image to clipboard natively");
                     return;
                 }
-                Logger.Warning("Failed to set image natively, falling back to text");
+                logger.LogWarning("Failed to set image natively, falling back to text");
             }
 
             await Dispatcher.UIThread.InvokeAsync(async () =>
@@ -218,7 +217,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error setting clipboard content");
+            logger.LogError(ex, "Error setting clipboard content");
         }
         finally
         {
@@ -263,13 +262,13 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                 
                 await clipboard.SetDataObjectAsync(dataObject);
                 
-                Logger.Debug("Image set to clipboard via Avalonia DataObject: {Size} bytes", imageData.Length);
+                logger.LogDebug("Image set to clipboard via Avalonia DataObject: {Size} bytes", imageData.Length);
                 return true;
             });
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Failed to set image to clipboard");
+            logger.LogError(ex, "Failed to set image to clipboard");
             return false;
         }
     }
@@ -315,7 +314,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
 
     private async Task PollClipboardAsync(CancellationToken cancellationToken)
     {
-        Logger.Debug("Fallback polling started");
+        logger.LogDebug("Fallback polling started");
 
         while (!cancellationToken.IsCancellationRequested && IsMonitoring)
             try
@@ -329,7 +328,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Polling error");
+                logger.LogError(ex, "Polling error");
             }
     }
 
@@ -338,11 +337,11 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         if (_ignoringNextChange)
         {
             _ignoringNextChange = false;
-            Logger.Debug("Ignoring self-triggered clipboard change");
+            logger.LogDebug("Ignoring self-triggered clipboard change");
             return;
         }
 
-        Logger.Debug("WM_CLIPBOARDUPDATE received");
+        logger.LogDebug("WM_CLIPBOARDUPDATE received");
 
         try
         {
@@ -350,7 +349,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error handling clipboard update");
+            logger.LogError(ex, "Error handling clipboard update");
         }
     }
 
@@ -362,12 +361,12 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         string? hash = content.ComputeHash();
         if (hash == _lastContentHash) return;
 
-        Logger.Information("New clipboard content detected: {Type}, Hash: {Hash}",
+        logger.LogInformation("New clipboard content detected: {Type}, Hash: {Hash}",
             content.Type, hash?[..8]);
         _lastContentHash = hash;
 
         string? sourceApp = GetForegroundApplicationName();
-        Logger.Debug("Source application: {SourceApp}", sourceApp);
+        logger.LogDebug("Source application: {SourceApp}", sourceApp);
 
         ClipboardChanged?.Invoke(this, new ClipboardChangedEventArgs
         {
@@ -383,11 +382,11 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         if (content != null)
         {
             _lastContentHash = content.ComputeHash();
-            Logger.Debug("Initial clipboard hash: {Hash}", _lastContentHash?.Substring(0, 8));
+            logger.LogDebug("Initial clipboard hash: {Hash}", _lastContentHash?.Substring(0, 8));
         }
     }
 
-    private static async Task<byte[]?> TryGetImageDataAsync(IClipboard clipboard, string[] formats)
+    private async Task<byte[]?> TryGetImageDataAsync(IClipboard clipboard, string[] formats)
     {
         try
         {
@@ -398,13 +397,13 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                 switch (pngData)
                 {
                     case byte[] { Length: > 0 } pngBytes:
-                        Logger.Debug("Got PNG data: {Size} bytes", pngBytes.Length);
+                        logger.LogDebug("Got PNG data: {Size} bytes", pngBytes.Length);
                         return pngBytes;
                     case Stream pngStream:
                     {
                         using MemoryStream ms = new();
                         await pngStream.CopyToAsync(ms);
-                        Logger.Debug("Got PNG stream: {Size} bytes", ms.Length);
+                        logger.LogDebug("Got PNG stream: {Size} bytes", ms.Length);
                         return ms.ToArray();
                     }
                 }
@@ -417,14 +416,14 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                 switch (dibData)
                 {
                     case byte[] { Length: > 0 } dibBytes:
-                        Logger.Debug("Got DIB data: {Size} bytes", dibBytes.Length);
+                        logger.LogDebug("Got DIB data: {Size} bytes", dibBytes.Length);
                         // Convert DIB to PNG for storage
                         return ConvertDibToPng(dibBytes);
                     case Stream dibStream:
                     {
                         using MemoryStream ms = new();
                         await dibStream.CopyToAsync(ms);
-                        Logger.Debug("Got DIB stream: {Size} bytes", ms.Length);
+                        logger.LogDebug("Got DIB stream: {Size} bytes", ms.Length);
                         return ConvertDibToPng(ms.ToArray());
                     }
                 }
@@ -437,13 +436,13 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
                 switch (bmpData)
                 {
                     case byte[] { Length: > 0 } bmpBytes:
-                        Logger.Debug("Got Bitmap data: {Size} bytes", bmpBytes.Length);
+                        logger.LogDebug("Got Bitmap data: {Size} bytes", bmpBytes.Length);
                         return bmpBytes;
                     case Stream bmpStream:
                     {
                         using MemoryStream ms = new();
                         await bmpStream.CopyToAsync(ms);
-                        Logger.Debug("Got Bitmap stream: {Size} bytes", ms.Length);
+                        logger.LogDebug("Got Bitmap stream: {Size} bytes", ms.Length);
                         return ms.ToArray();
                     }
                 }
@@ -451,13 +450,13 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Logger.Warning(ex, "Failed to get image data from clipboard");
+            logger.LogWarning(ex, "Failed to get image data from clipboard");
         }
 
         return null;
     }
 
-    private static byte[]? ConvertDibToPng(byte[] dibData)
+    private byte[]? ConvertDibToPng(byte[] dibData)
     {
         try
         {
@@ -472,7 +471,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
             short bitCount = BitConverter.ToInt16(dibData, 14);
             int compression = BitConverter.ToInt32(dibData, 16);
 
-            Logger.Debug("DIB: {Width}x{Height}, {BitCount}bpp, compression={Compression}",
+            logger.LogDebug("DIB: {Width}x{Height}, {BitCount}bpp, compression={Compression}",
                 width, height, bitCount, compression);
 
             // Calculate the size of color table (if any)
@@ -514,7 +513,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Logger.Warning(ex, "Failed to convert DIB to PNG, returning raw data");
+            logger.LogWarning(ex, "Failed to convert DIB to PNG, returning raw data");
             return dibData;
         }
     }
@@ -580,18 +579,19 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
     private partial class NativeWindowHandler : IDisposable
     {
         private const int GWLP_WNDPROC = -4;
-        private static readonly ILogger Logger = Log.ForContext<NativeWindowHandler>();
 
         private readonly IntPtr _hwnd;
         private readonly Action _onClipboardUpdate;
         private readonly IntPtr _originalWndProc;
         private readonly WndProcDelegate _wndProcDelegate;
+        private readonly ILogger _logger;
         private bool _disposed;
 
-        public NativeWindowHandler(IntPtr hwnd, Action onClipboardUpdate)
+        public NativeWindowHandler(IntPtr hwnd, Action onClipboardUpdate, ILogger logger)
         {
             _hwnd = hwnd;
             _onClipboardUpdate = onClipboardUpdate;
+            _logger = logger;
 
             // Keep delegate alive
             _wndProcDelegate = WndProc;
@@ -600,7 +600,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
             _originalWndProc = GetWindowLongPtr(_hwnd, GWLP_WNDPROC);
             SetWindowLongPtr(_hwnd, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
 
-            Logger.Debug("Window subclassed for clipboard messages");
+            _logger.LogDebug("Window subclassed for clipboard messages");
         }
 
         public void Dispose()
@@ -611,7 +611,7 @@ public partial class WindowsClipboardMonitor : IClipboardMonitor
             // Restore original window procedure
             if (_originalWndProc == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
             SetWindowLongPtr(_hwnd, GWLP_WNDPROC, _originalWndProc);
-            Logger.Debug("Window procedure restored");
+            _logger.LogDebug("Window procedure restored");
         }
 
         [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
