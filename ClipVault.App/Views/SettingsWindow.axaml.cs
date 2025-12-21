@@ -1,7 +1,9 @@
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
+using ClipVault.App.Controls;
 using ClipVault.App.Data.Repositories;
+using ClipVault.App.Helpers;
 using ClipVault.App.ViewModels;
 using System.Globalization;
 
@@ -9,6 +11,9 @@ namespace ClipVault.App.Views;
 
 public partial class SettingsWindow : Window
 {
+    private readonly HotkeyManager? _hotkeyManager;
+    private HotkeyRecorder? _hotkeyRecorder;
+    
     /// <summary>
     /// Converter for displaying max history items (0 = Unlimited).
     /// </summary>
@@ -26,10 +31,37 @@ public partial class SettingsWindow : Window
         InitializeComponent();
     }
     
-    public SettingsWindow(ISettingsRepository settingsRepository)
+    public SettingsWindow(ISettingsRepository settingsRepository, HotkeyManager? hotkeyManager = null)
     {
         InitializeComponent();
         DataContext = new SettingsViewModel(settingsRepository);
+        _hotkeyManager = hotkeyManager;
+        
+        // Wire up hotkey recorder events after control is loaded
+        Loaded += OnWindowLoaded;
+    }
+    
+    private void OnWindowLoaded(object? sender, RoutedEventArgs e)
+    {
+        _hotkeyRecorder = this.FindControl<HotkeyRecorder>("HotkeyRecorderControl");
+        
+        if (_hotkeyRecorder != null && _hotkeyManager != null)
+        {
+            _hotkeyRecorder.RecordingStarted += OnHotkeyRecordingStarted;
+            _hotkeyRecorder.RecordingStopped += OnHotkeyRecordingStopped;
+        }
+    }
+    
+    private void OnHotkeyRecordingStarted(object? sender, EventArgs e)
+    {
+        // Suspend global hotkey detection while recording
+        _hotkeyManager?.Suspend();
+    }
+    
+    private void OnHotkeyRecordingStopped(object? sender, EventArgs e)
+    {
+        // Resume global hotkey detection after recording
+        _hotkeyManager?.Resume();
     }
     
     /// <summary>
@@ -56,5 +88,20 @@ public partial class SettingsWindow : Window
             await viewModel.SaveSettingsCommand.ExecuteAsync(null);
         }
         Close(true);
+    }
+    
+    protected override void OnClosed(EventArgs e)
+    {
+        // Clean up event handlers
+        if (_hotkeyRecorder != null)
+        {
+            _hotkeyRecorder.RecordingStarted -= OnHotkeyRecordingStarted;
+            _hotkeyRecorder.RecordingStopped -= OnHotkeyRecordingStopped;
+        }
+        
+        // Ensure hotkey manager is resumed if window is closed during recording
+        _hotkeyManager?.Resume();
+        
+        base.OnClosed(e);
     }
 }
