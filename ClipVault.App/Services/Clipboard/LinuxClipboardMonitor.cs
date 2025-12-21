@@ -3,7 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using ClipVault.App.Models;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
 #pragma warning disable CS0618 // Type or member is obsolete (Avalonia clipboard API)
 
@@ -13,13 +13,13 @@ namespace ClipVault.App.Services.Clipboard;
 /// Linux-specific clipboard monitor using X11/Wayland.
 /// Uses polling approach similar to other platforms.
 /// </summary>
-public class LinuxClipboardMonitor : IClipboardMonitor
+public class LinuxClipboardMonitor(ILogger<LinuxClipboardMonitor> logger) : IClipboardMonitor
 {
     private bool _disposed;
     private CancellationTokenSource? _cts;
     private string? _lastContentHash;
     private TopLevel? _topLevel;
-    
+
     public event EventHandler<ClipboardChangedEventArgs>? ClipboardChanged;
     
     public bool IsMonitoring { get; private set; }
@@ -78,7 +78,7 @@ public class LinuxClipboardMonitor : IClipboardMonitor
             }
             catch (Exception ex)
             {
-                Log.Warning(ex, "Clipboard polling error on Linux");
+                logger.LogWarning(ex, "Clipboard polling error on Linux");
             }
         }
     }
@@ -136,7 +136,7 @@ public class LinuxClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Error getting clipboard content on Linux");
+            logger.LogWarning(ex, "Error getting clipboard content on Linux");
             return null;
         }
     }
@@ -172,7 +172,7 @@ public class LinuxClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Error setting clipboard content on Linux");
+            logger.LogWarning(ex, "Error setting clipboard content on Linux");
         }
     }
     

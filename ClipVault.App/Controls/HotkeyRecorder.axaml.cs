@@ -4,36 +4,23 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Interactivity;
 using Avalonia.Styling;
-using Avalonia.Threading;
-using SharpHook;
-using SharpHook.Native;
 using System.Text;
 
 namespace ClipVault.App.Controls;
 
 /// <summary>
 /// A custom control for recording keyboard hotkey combinations.
-/// Uses SharpHook global hook to capture keys before other applications.
+/// Uses Avalonia's keyboard events to capture keys when the control has focus.
 /// PowerToys-style visual design with individual key boxes.
 /// </summary>
-public partial class HotkeyRecorder : UserControl, IDisposable
+public partial class HotkeyRecorder : UserControl
 {
     private bool _isRecording;
     private bool _winPressed;
     private bool _ctrlPressed;
     private bool _shiftPressed;
     private bool _altPressed;
-    private KeyCode _mainKey = KeyCode.VcUndefined;
-
-    // SharpHook global hook for recording
-    // IMPORTANT: Keep explicit delegate references to prevent GC collection
-    private SimpleGlobalHook? _recordingHook;
-    private EventHandler<KeyboardHookEventArgs>? _keyPressedHandler;
-    private EventHandler<KeyboardHookEventArgs>? _keyReleasedHandler;
-    private Task? _hookTask;
-    private readonly Lock _hookLock = new();
-    private volatile bool _hookStopping;
-    private bool _disposed;
+    private Key _mainKey = Key.None;
 
     private Border? _recorderBorder;
     private StackPanel? _keysPanel;
@@ -84,12 +71,6 @@ public partial class HotkeyRecorder : UserControl, IDisposable
     {
         base.OnLoaded(e);
         SetupControls();
-    }
-
-    protected override void OnUnloaded(RoutedEventArgs e)
-    {
-        base.OnUnloaded(e);
-        Dispose();
     }
 
     private void SetupControls()
@@ -149,7 +130,7 @@ public partial class HotkeyRecorder : UserControl, IDisposable
         _ctrlPressed = false;
         _shiftPressed = false;
         _altPressed = false;
-        _mainKey = KeyCode.VcUndefined;
+        _mainKey = Key.None;
         Hotkey = string.Empty;
         UpdateDisplay();
     }
@@ -163,11 +144,9 @@ public partial class HotkeyRecorder : UserControl, IDisposable
         _ctrlPressed = false;
         _shiftPressed = false;
         _altPressed = false;
-        _mainKey = KeyCode.VcUndefined;
+        _mainKey = Key.None;
 
         RecordingStarted?.Invoke(this, EventArgs.Empty);
-
-        StartGlobalHook();
 
         Focus();
         
@@ -180,256 +159,77 @@ public partial class HotkeyRecorder : UserControl, IDisposable
 
         _isRecording = false;
 
-        StopGlobalHook();
-
         UpdateDisplay();
 
         RecordingStopped?.Invoke(this, EventArgs.Empty);
     }
 
-    private void StartGlobalHook()
-    {
-        using (_hookLock.EnterScope())
-        {
-            if (_recordingHook != null || _hookStopping) return;
-
-            _recordingHook = new SimpleGlobalHook();
-
-            _keyPressedHandler = OnGlobalKeyPressed;
-            _keyReleasedHandler = OnGlobalKeyReleased;
-
-            _recordingHook.KeyPressed += _keyPressedHandler;
-            _recordingHook.KeyReleased += _keyReleasedHandler;
-
-            var hook = _recordingHook;
-
-            _hookTask = Task.Run(async () =>
-            {
-                try
-                {
-                    await hook.RunAsync();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Expected when hook is disposed
-                }
-                catch
-                {
-                    // Ignore other exceptions
-                }
-            });
-        }
-    }
-
-    private void StopGlobalHook()
-    {
-        SimpleGlobalHook? hookToDispose;
-        Task? taskToWait;
-
-        using (_hookLock.EnterScope())
-        {
-            if (_recordingHook == null || _hookStopping) return;
-
-            _hookStopping = true;
-            hookToDispose = _recordingHook;
-            taskToWait = _hookTask;
-
-            if (_keyPressedHandler != null)
-            {
-                _recordingHook.KeyPressed -= _keyPressedHandler;
-            }
-
-            if (_keyReleasedHandler != null)
-            {
-                _recordingHook.KeyReleased -= _keyReleasedHandler;
-            }
-
-            _recordingHook = null;
-            _hookTask = null;
-        }
-
-        if (hookToDispose != null)
-        {
-            try
-            {
-                hookToDispose.Dispose();
-            }
-            catch
-            {
-                // Ignore dispose exceptions
-            }
-        }
-
-        if (taskToWait != null)
-        {
-            try
-            {
-                taskToWait.Wait(TimeSpan.FromSeconds(1));
-            }
-            catch
-            {
-                // Ignore wait exceptions
-            }
-        }
-
-        using (_hookLock.EnterScope())
-        {
-            _keyPressedHandler = null;
-            _keyReleasedHandler = null;
-            _hookStopping = false;
-        }
-    }
-
-    private void OnGlobalKeyPressed(object? sender, KeyboardHookEventArgs e)
-    {
-        if (!_isRecording || _hookStopping) return;
-
-        e.SuppressEvent = true;
-
-        KeyCode keyCode = e.Data.KeyCode;
-        ModifierMask mask = e.RawEvent.Mask;
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!_isRecording || _hookStopping) return;
-
-            if (keyCode == KeyCode.VcEscape)
-            {
-                ParseHotkey(Hotkey);
-                StopRecording();
-                return;
-            }
-
-            if (IsModifierKey(keyCode))
-            {
-                UpdateModifierState(keyCode, pressed: true);
-                UpdateDisplay();
-                return;
-            }
-
-            if (IsValidMainKey(keyCode))
-            {
-                _mainKey = keyCode;
-                SyncModifiersFromMask(mask);
-
-                if (_winPressed || _ctrlPressed || _shiftPressed || _altPressed)
-                {
-                    Hotkey = BuildHotkeyString();
-                    StopRecording();
-                }
-                else
-                {
-                    UpdateDisplay();
-                }
-            }
-        });
-    }
-
-    private void OnGlobalKeyReleased(object? sender, KeyboardHookEventArgs e)
-    {
-        if (!_isRecording || _hookStopping) return;
-
-        e.SuppressEvent = true;
-
-        KeyCode keyCode = e.Data.KeyCode;
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!_isRecording || _hookStopping) return;
-
-            if (IsModifierKey(keyCode))
-            {
-                UpdateModifierState(keyCode, pressed: false);
-                UpdateDisplay();
-            }
-        });
-    }
-
-    private void UpdateModifierState(KeyCode keyCode, bool pressed)
-    {
-        switch (keyCode)
-        {
-            case KeyCode.VcLeftControl:
-            case KeyCode.VcRightControl:
-                _ctrlPressed = pressed;
-                break;
-            case KeyCode.VcLeftShift:
-            case KeyCode.VcRightShift:
-                _shiftPressed = pressed;
-                break;
-            case KeyCode.VcLeftAlt:
-            case KeyCode.VcRightAlt:
-                _altPressed = pressed;
-                break;
-            case KeyCode.VcLeftMeta:
-            case KeyCode.VcRightMeta:
-                _winPressed = pressed;
-                break;
-        }
-    }
-
-    private void SyncModifiersFromMask(ModifierMask mask)
-    {
-        _winPressed = (mask & ModifierMask.Meta) != 0;
-        _ctrlPressed = (mask & ModifierMask.Ctrl) != 0;
-        _shiftPressed = (mask & ModifierMask.Shift) != 0;
-        _altPressed = (mask & ModifierMask.Alt) != 0;
-    }
-
-    private static bool IsModifierKey(KeyCode keyCode)
-    {
-        return keyCode switch
-        {
-            KeyCode.VcLeftControl or KeyCode.VcRightControl => true,
-            KeyCode.VcLeftShift or KeyCode.VcRightShift => true,
-            KeyCode.VcLeftAlt or KeyCode.VcRightAlt => true,
-            KeyCode.VcLeftMeta or KeyCode.VcRightMeta => true,
-            _ => false
-        };
-    }
-
-    private static bool IsValidMainKey(KeyCode keyCode)
-    {
-        return keyCode switch
-        {
-            // Letters
-            >= KeyCode.VcA and <= KeyCode.VcZ => true,
-            // Numbers
-            >= KeyCode.Vc0 and <= KeyCode.Vc9 => true,
-            // NumPad
-            >= KeyCode.VcNumPad0 and <= KeyCode.VcNumPad9 => true,
-            // Function keys
-            >= KeyCode.VcF1 and <= KeyCode.VcF24 => true,
-            // Navigation & editing
-            KeyCode.VcSpace or KeyCode.VcTab or KeyCode.VcEnter => true,
-            KeyCode.VcBackspace or KeyCode.VcDelete or KeyCode.VcInsert => true,
-            KeyCode.VcHome or KeyCode.VcEnd or KeyCode.VcPageUp or KeyCode.VcPageDown => true,
-            // Arrow keys
-            KeyCode.VcUp or KeyCode.VcDown or KeyCode.VcLeft or KeyCode.VcRight => true,
-            // Symbol keys
-            KeyCode.VcBackQuote or KeyCode.VcMinus or KeyCode.VcEquals => true,
-            KeyCode.VcOpenBracket or KeyCode.VcCloseBracket => true,
-            KeyCode.VcBackslash or KeyCode.VcSemicolon or KeyCode.VcQuote => true,
-            KeyCode.VcComma or KeyCode.VcPeriod or KeyCode.VcSlash => true,
-            // Special keys
-            KeyCode.VcPrintScreen or KeyCode.VcScrollLock or KeyCode.VcPause => true,
-            KeyCode.VcNumLock or KeyCode.VcCapsLock => true,
-            _ => false
-        };
-    }
-
-    // Handle Escape key via Avalonia as fallback (in case global hook doesn't catch it)
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (_isRecording && e.Key == Key.Escape)
+        if (!_isRecording)
         {
-            e.Handled = true;
+            base.OnKeyDown(e);
+            return;
+        }
+
+        e.Handled = true;
+
+        // Handle Escape to cancel
+        if (e.Key == Key.Escape)
+        {
             ParseHotkey(Hotkey);
             StopRecording();
             return;
         }
 
-        base.OnKeyDown(e);
+        // Update modifier state
+        _ctrlPressed = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+        _shiftPressed = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        _altPressed = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+        _winPressed = e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+
+        // Check if this is a modifier key only
+        if (IsModifierKey(e.Key))
+        {
+            UpdateDisplay();
+            return;
+        }
+
+        // This is a main key
+        if (IsValidMainKey(e.Key))
+        {
+            _mainKey = e.Key;
+
+            // Only accept if at least one modifier is pressed
+            if (_winPressed || _ctrlPressed || _shiftPressed || _altPressed)
+            {
+                Hotkey = BuildHotkeyString();
+                StopRecording();
+            }
+            else
+            {
+                UpdateDisplay();
+            }
+        }
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        if (!_isRecording)
+        {
+            base.OnKeyUp(e);
+            return;
+        }
+
+        e.Handled = true;
+
+        // Update modifier state on key up
+        _ctrlPressed = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+        _shiftPressed = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        _altPressed = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+        _winPressed = e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+
+        UpdateDisplay();
     }
 
     protected override void OnLostFocus(RoutedEventArgs e)
@@ -439,6 +239,48 @@ public partial class HotkeyRecorder : UserControl, IDisposable
         if (!_isRecording) return;
         ParseHotkey(Hotkey);
         StopRecording();
+    }
+
+    private static bool IsModifierKey(Key key)
+    {
+        return key switch
+        {
+            Key.LeftCtrl or Key.RightCtrl => true,
+            Key.LeftShift or Key.RightShift => true,
+            Key.LeftAlt or Key.RightAlt => true,
+            Key.LWin or Key.RWin => true,
+            _ => false
+        };
+    }
+
+    private static bool IsValidMainKey(Key key)
+    {
+        return key switch
+        {
+            // Letters
+            >= Key.A and <= Key.Z => true,
+            // Numbers
+            >= Key.D0 and <= Key.D9 => true,
+            // NumPad
+            >= Key.NumPad0 and <= Key.NumPad9 => true,
+            // Function keys
+            >= Key.F1 and <= Key.F24 => true,
+            // Navigation & editing
+            Key.Space or Key.Tab or Key.Enter => true,
+            Key.Back or Key.Delete or Key.Insert => true,
+            Key.Home or Key.End or Key.PageUp or Key.PageDown => true,
+            // Arrow keys
+            Key.Up or Key.Down or Key.Left or Key.Right => true,
+            // Symbol keys
+            Key.OemTilde or Key.OemMinus or Key.OemPlus => true,
+            Key.OemOpenBrackets or Key.OemCloseBrackets => true,
+            Key.OemPipe or Key.OemSemicolon or Key.OemQuotes => true,
+            Key.OemComma or Key.OemPeriod or Key.OemQuestion => true,
+            // Special keys
+            Key.PrintScreen or Key.Scroll or Key.Pause => true,
+            Key.NumLock or Key.CapsLock => true,
+            _ => false
+        };
     }
 
     private string BuildHotkeyString()
@@ -465,76 +307,58 @@ public partial class HotkeyRecorder : UserControl, IDisposable
             sb.Append("Shift+");
         }
 
-        sb.Append(KeyCodeToDisplayString(_mainKey));
+        sb.Append(KeyToDisplayString(_mainKey));
 
         return sb.ToString();
     }
 
-    private static string KeyCodeToDisplayString(KeyCode keyCode)
+    private static string KeyToDisplayString(Key key)
     {
-        return keyCode switch
+        return key switch
         {
-            // Letters - remove "Vc" prefix
-            >= KeyCode.VcA and <= KeyCode.VcZ => keyCode.ToString()[2..],
-            // Numbers
-            KeyCode.Vc0 => "0",
-            KeyCode.Vc1 => "1",
-            KeyCode.Vc2 => "2",
-            KeyCode.Vc3 => "3",
-            KeyCode.Vc4 => "4",
-            KeyCode.Vc5 => "5",
-            KeyCode.Vc6 => "6",
-            KeyCode.Vc7 => "7",
-            KeyCode.Vc8 => "8",
-            KeyCode.Vc9 => "9",
+            // Letters
+            >= Key.A and <= Key.Z => key.ToString(),
+            // Numbers (D0-D9 -> 0-9)
+            >= Key.D0 and <= Key.D9 => ((int)key - (int)Key.D0).ToString(),
             // NumPad
-            KeyCode.VcNumPad0 => "Num0",
-            KeyCode.VcNumPad1 => "Num1",
-            KeyCode.VcNumPad2 => "Num2",
-            KeyCode.VcNumPad3 => "Num3",
-            KeyCode.VcNumPad4 => "Num4",
-            KeyCode.VcNumPad5 => "Num5",
-            KeyCode.VcNumPad6 => "Num6",
-            KeyCode.VcNumPad7 => "Num7",
-            KeyCode.VcNumPad8 => "Num8",
-            KeyCode.VcNumPad9 => "Num9",
+            >= Key.NumPad0 and <= Key.NumPad9 => "Num" + ((int)key - (int)Key.NumPad0),
             // Navigation & editing
-            KeyCode.VcSpace => "Space",
-            KeyCode.VcTab => "Tab",
-            KeyCode.VcEnter => "Enter",
-            KeyCode.VcBackspace => "Backspace",
-            KeyCode.VcDelete => "Delete",
-            KeyCode.VcInsert => "Insert",
-            KeyCode.VcHome => "Home",
-            KeyCode.VcEnd => "End",
-            KeyCode.VcPageUp => "PageUp",
-            KeyCode.VcPageDown => "PageDown",
+            Key.Space => "Space",
+            Key.Tab => "Tab",
+            Key.Enter => "Enter",
+            Key.Back => "Backspace",
+            Key.Delete => "Delete",
+            Key.Insert => "Insert",
+            Key.Home => "Home",
+            Key.End => "End",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
             // Arrow keys
-            KeyCode.VcUp => "Up",
-            KeyCode.VcDown => "Down",
-            KeyCode.VcLeft => "Left",
-            KeyCode.VcRight => "Right",
+            Key.Up => "Up",
+            Key.Down => "Down",
+            Key.Left => "Left",
+            Key.Right => "Right",
             // Symbol keys
-            KeyCode.VcBackQuote => "`",
-            KeyCode.VcMinus => "-",
-            KeyCode.VcEquals => "=",
-            KeyCode.VcOpenBracket => "[",
-            KeyCode.VcCloseBracket => "]",
-            KeyCode.VcBackslash => "\\",
-            KeyCode.VcSemicolon => ";",
-            KeyCode.VcQuote => "'",
-            KeyCode.VcComma => ",",
-            KeyCode.VcPeriod => ".",
-            KeyCode.VcSlash => "/",
+            Key.OemTilde => "`",
+            Key.OemMinus => "-",
+            Key.OemPlus => "=",
+            Key.OemOpenBrackets => "[",
+            Key.OemCloseBrackets => "]",
+            Key.OemPipe => "\\",
+            Key.OemSemicolon => ";",
+            Key.OemQuotes => "'",
+            Key.OemComma => ",",
+            Key.OemPeriod => ".",
+            Key.OemQuestion => "/",
             // Special keys
-            KeyCode.VcPrintScreen => "PrtSc",
-            KeyCode.VcScrollLock => "ScrLk",
-            KeyCode.VcPause => "Pause",
-            KeyCode.VcNumLock => "NumLock",
-            KeyCode.VcCapsLock => "CapsLock",
+            Key.PrintScreen => "PrtSc",
+            Key.Scroll => "ScrLk",
+            Key.Pause => "Pause",
+            Key.NumLock => "NumLock",
+            Key.CapsLock => "CapsLock",
             // Function keys
-            >= KeyCode.VcF1 and <= KeyCode.VcF24 => keyCode.ToString()[2..],
-            _ => keyCode.ToString()
+            >= Key.F1 and <= Key.F24 => key.ToString(),
+            _ => key.ToString()
         };
     }
 
@@ -544,7 +368,7 @@ public partial class HotkeyRecorder : UserControl, IDisposable
         _ctrlPressed = false;
         _shiftPressed = false;
         _altPressed = false;
-        _mainKey = KeyCode.VcUndefined;
+        _mainKey = Key.None;
 
         if (string.IsNullOrWhiteSpace(hotkey))
         {
@@ -578,104 +402,79 @@ public partial class HotkeyRecorder : UserControl, IDisposable
                     _altPressed = true;
                     break;
                 default:
-                    _mainKey = StringToKeyCode(upperPart);
+                    _mainKey = StringToKey(upperPart);
                     break;
             }
         }
     }
 
-    private static KeyCode StringToKeyCode(string keyStr)
+    private static Key StringToKey(string keyStr)
     {
         return keyStr switch
         {
-            "SPACE" => KeyCode.VcSpace,
-            "TAB" => KeyCode.VcTab,
-            "ENTER" or "RETURN" => KeyCode.VcEnter,
-            "BACKSPACE" => KeyCode.VcBackspace,
-            "DELETE" or "DEL" => KeyCode.VcDelete,
-            "INSERT" or "INS" => KeyCode.VcInsert,
-            "HOME" => KeyCode.VcHome,
-            "END" => KeyCode.VcEnd,
-            "PAGEUP" or "PGUP" => KeyCode.VcPageUp,
-            "PAGEDOWN" or "PGDN" => KeyCode.VcPageDown,
-            "UP" => KeyCode.VcUp,
-            "DOWN" => KeyCode.VcDown,
-            "LEFT" => KeyCode.VcLeft,
-            "RIGHT" => KeyCode.VcRight,
-            "PRINTSCREEN" or "PRTSC" or "PRINT" => KeyCode.VcPrintScreen,
-            "SCROLLLOCK" or "SCRLK" => KeyCode.VcScrollLock,
-            "PAUSE" or "BREAK" => KeyCode.VcPause,
-            "NUMLOCK" => KeyCode.VcNumLock,
-            "CAPSLOCK" or "CAPS" => KeyCode.VcCapsLock,
+            "SPACE" => Key.Space,
+            "TAB" => Key.Tab,
+            "ENTER" or "RETURN" => Key.Enter,
+            "BACKSPACE" => Key.Back,
+            "DELETE" or "DEL" => Key.Delete,
+            "INSERT" or "INS" => Key.Insert,
+            "HOME" => Key.Home,
+            "END" => Key.End,
+            "PAGEUP" or "PGUP" => Key.PageUp,
+            "PAGEDOWN" or "PGDN" => Key.PageDown,
+            "UP" => Key.Up,
+            "DOWN" => Key.Down,
+            "LEFT" => Key.Left,
+            "RIGHT" => Key.Right,
+            "PRINTSCREEN" or "PRTSC" or "PRINT" => Key.PrintScreen,
+            "SCROLLLOCK" or "SCRLK" => Key.Scroll,
+            "PAUSE" or "BREAK" => Key.Pause,
+            "NUMLOCK" => Key.NumLock,
+            "CAPSLOCK" or "CAPS" => Key.CapsLock,
             // Function keys
-            "F1" => KeyCode.VcF1,
-            "F2" => KeyCode.VcF2,
-            "F3" => KeyCode.VcF3,
-            "F4" => KeyCode.VcF4,
-            "F5" => KeyCode.VcF5,
-            "F6" => KeyCode.VcF6,
-            "F7" => KeyCode.VcF7,
-            "F8" => KeyCode.VcF8,
-            "F9" => KeyCode.VcF9,
-            "F10" => KeyCode.VcF10,
-            "F11" => KeyCode.VcF11,
-            "F12" => KeyCode.VcF12,
-            "F13" => KeyCode.VcF13,
-            "F14" => KeyCode.VcF14,
-            "F15" => KeyCode.VcF15,
-            "F16" => KeyCode.VcF16,
-            "F17" => KeyCode.VcF17,
-            "F18" => KeyCode.VcF18,
-            "F19" => KeyCode.VcF19,
-            "F20" => KeyCode.VcF20,
-            "F21" => KeyCode.VcF21,
-            "F22" => KeyCode.VcF22,
-            "F23" => KeyCode.VcF23,
-            "F24" => KeyCode.VcF24,
+            "F1" => Key.F1, "F2" => Key.F2, "F3" => Key.F3, "F4" => Key.F4,
+            "F5" => Key.F5, "F6" => Key.F6, "F7" => Key.F7, "F8" => Key.F8,
+            "F9" => Key.F9, "F10" => Key.F10, "F11" => Key.F11, "F12" => Key.F12,
+            "F13" => Key.F13, "F14" => Key.F14, "F15" => Key.F15, "F16" => Key.F16,
+            "F17" => Key.F17, "F18" => Key.F18, "F19" => Key.F19, "F20" => Key.F20,
+            "F21" => Key.F21, "F22" => Key.F22, "F23" => Key.F23, "F24" => Key.F24,
             // Numbers
-            "0" => KeyCode.Vc0,
-            "1" => KeyCode.Vc1,
-            "2" => KeyCode.Vc2,
-            "3" => KeyCode.Vc3,
-            "4" => KeyCode.Vc4,
-            "5" => KeyCode.Vc5,
-            "6" => KeyCode.Vc6,
-            "7" => KeyCode.Vc7,
-            "8" => KeyCode.Vc8,
-            "9" => KeyCode.Vc9,
+            "0" => Key.D0, "1" => Key.D1, "2" => Key.D2, "3" => Key.D3, "4" => Key.D4,
+            "5" => Key.D5, "6" => Key.D6, "7" => Key.D7, "8" => Key.D8, "9" => Key.D9,
             // NumPad
-            "NUM0" or "NUMPAD0" => KeyCode.VcNumPad0,
-            "NUM1" or "NUMPAD1" => KeyCode.VcNumPad1,
-            "NUM2" or "NUMPAD2" => KeyCode.VcNumPad2,
-            "NUM3" or "NUMPAD3" => KeyCode.VcNumPad3,
-            "NUM4" or "NUMPAD4" => KeyCode.VcNumPad4,
-            "NUM5" or "NUMPAD5" => KeyCode.VcNumPad5,
-            "NUM6" or "NUMPAD6" => KeyCode.VcNumPad6,
-            "NUM7" or "NUMPAD7" => KeyCode.VcNumPad7,
-            "NUM8" or "NUMPAD8" => KeyCode.VcNumPad8,
-            "NUM9" or "NUMPAD9" => KeyCode.VcNumPad9,
+            "NUM0" or "NUMPAD0" => Key.NumPad0,
+            "NUM1" or "NUMPAD1" => Key.NumPad1,
+            "NUM2" or "NUMPAD2" => Key.NumPad2,
+            "NUM3" or "NUMPAD3" => Key.NumPad3,
+            "NUM4" or "NUMPAD4" => Key.NumPad4,
+            "NUM5" or "NUMPAD5" => Key.NumPad5,
+            "NUM6" or "NUMPAD6" => Key.NumPad6,
+            "NUM7" or "NUMPAD7" => Key.NumPad7,
+            "NUM8" or "NUMPAD8" => Key.NumPad8,
+            "NUM9" or "NUMPAD9" => Key.NumPad9,
             // Symbol keys
-            "`" or "~" or "TILDE" or "BACKQUOTE" => KeyCode.VcBackQuote,
-            "-" or "_" or "MINUS" => KeyCode.VcMinus,
-            "=" or "+" or "PLUS" or "EQUALS" => KeyCode.VcEquals,
-            "[" or "{" or "OPENBRACKET" => KeyCode.VcOpenBracket,
-            "]" or "}" or "CLOSEBRACKET" => KeyCode.VcCloseBracket,
-            "\\" or "|" or "PIPE" or "BACKSLASH" => KeyCode.VcBackslash,
-            ";" or ":" or "SEMICOLON" => KeyCode.VcSemicolon,
-            "'" or "\"" or "QUOTE" or "APOSTROPHE" => KeyCode.VcQuote,
-            "," or "<" or "COMMA" => KeyCode.VcComma,
-            "." or ">" or "PERIOD" => KeyCode.VcPeriod,
-            "/" or "?" or "SLASH" => KeyCode.VcSlash,
+            "`" or "~" or "TILDE" or "BACKQUOTE" => Key.OemTilde,
+            "-" or "_" or "MINUS" => Key.OemMinus,
+            "=" or "+" or "PLUS" or "EQUALS" => Key.OemPlus,
+            "[" or "{" or "OPENBRACKET" => Key.OemOpenBrackets,
+            "]" or "}" or "CLOSEBRACKET" => Key.OemCloseBrackets,
+            "\\" or "|" or "PIPE" or "BACKSLASH" => Key.OemPipe,
+            ";" or ":" or "SEMICOLON" => Key.OemSemicolon,
+            "'" or "\"" or "QUOTE" or "APOSTROPHE" => Key.OemQuotes,
+            "," or "<" or "COMMA" => Key.OemComma,
+            "." or ">" or "PERIOD" => Key.OemPeriod,
+            "/" or "?" or "SLASH" => Key.OemQuestion,
             // Single letter
             _ when keyStr.Length == 1 && char.IsLetter(keyStr[0]) =>
-                Enum.TryParse<KeyCode>("Vc" + keyStr, true, out var key) ? key : KeyCode.VcUndefined,
-            _ => KeyCode.VcUndefined
+                Enum.TryParse<Key>(keyStr, true, out var key) ? key : Key.None,
+            _ => Key.None
         };
     }
 
     private void UpdateDisplay()
     {
-        if (_placeholderText == null || _recordingText == null ||
+        if (!_controlsInitialized || !IsLoaded ||
+            _placeholderText == null || _recordingText == null ||
             _winKeyVisual == null || _ctrlKeyVisual == null ||
             _altKeyVisual == null || _shiftKeyVisual == null ||
             _plusSeparator == null || _mainKeyVisual == null ||
@@ -684,56 +483,63 @@ public partial class HotkeyRecorder : UserControl, IDisposable
             return;
         }
 
-        bool hasModifier = _winPressed || _ctrlPressed || _altPressed || _shiftPressed;
-        bool hasMainKey = _mainKey != KeyCode.VcUndefined;
-        bool hasValidHotkey = hasModifier && hasMainKey;
-
-        if (_isRecording)
+        try
         {
-            _placeholderText.IsVisible = false;
-            _recordingText.IsVisible = !hasModifier;
+            bool hasModifier = _winPressed || _ctrlPressed || _altPressed || _shiftPressed;
+            bool hasMainKey = _mainKey != Key.None;
+            bool hasValidHotkey = hasModifier && hasMainKey;
 
-            _winKeyVisual.IsVisible = _winPressed;
-            _ctrlKeyVisual.IsVisible = _ctrlPressed;
-            _altKeyVisual.IsVisible = _altPressed;
-            _shiftKeyVisual.IsVisible = _shiftPressed;
-            _plusSeparator.IsVisible = false;
-            _mainKeyVisual.IsVisible = false;
-
-            _recorderBorder.BorderBrush = GetResourceBrush("SystemAccentColor");
-            _recorderBorder.BorderThickness = new Thickness(2);
-            _clearButton.IsVisible = false;
-        }
-        else
-        {
-            _recordingText.IsVisible = false;
-
-            if (hasValidHotkey)
+            if (_isRecording)
             {
                 _placeholderText.IsVisible = false;
+                _recordingText.IsVisible = !hasModifier;
+
                 _winKeyVisual.IsVisible = _winPressed;
                 _ctrlKeyVisual.IsVisible = _ctrlPressed;
                 _altKeyVisual.IsVisible = _altPressed;
                 _shiftKeyVisual.IsVisible = _shiftPressed;
-                _plusSeparator.IsVisible = true;
-                _mainKeyVisual.IsVisible = true;
-                _mainKeyVisual.KeyText = KeyCodeToDisplayString(_mainKey);
-                _clearButton.IsVisible = true;
+                _plusSeparator.IsVisible = false;
+                _mainKeyVisual.IsVisible = false;
+
+                _recorderBorder.BorderBrush = GetResourceBrush("SystemAccentColor");
+                _recorderBorder.BorderThickness = new Thickness(2);
+                _clearButton.IsVisible = false;
             }
             else
             {
-                _placeholderText.IsVisible = true;
-                _winKeyVisual.IsVisible = false;
-                _ctrlKeyVisual.IsVisible = false;
-                _altKeyVisual.IsVisible = false;
-                _shiftKeyVisual.IsVisible = false;
-                _plusSeparator.IsVisible = false;
-                _mainKeyVisual.IsVisible = false;
-                _clearButton.IsVisible = false;
-            }
+                _recordingText.IsVisible = false;
 
-            _recorderBorder.BorderBrush = GetResourceBrush("TextControlBorderBrush");
-            _recorderBorder.BorderThickness = new Thickness(1);
+                if (hasValidHotkey)
+                {
+                    _placeholderText.IsVisible = false;
+                    _winKeyVisual.IsVisible = _winPressed;
+                    _ctrlKeyVisual.IsVisible = _ctrlPressed;
+                    _altKeyVisual.IsVisible = _altPressed;
+                    _shiftKeyVisual.IsVisible = _shiftPressed;
+                    _plusSeparator.IsVisible = true;
+                    _mainKeyVisual.IsVisible = true;
+                    _mainKeyVisual.KeyText = KeyToDisplayString(_mainKey);
+                    _clearButton.IsVisible = true;
+                }
+                else
+                {
+                    _placeholderText.IsVisible = true;
+                    _winKeyVisual.IsVisible = false;
+                    _ctrlKeyVisual.IsVisible = false;
+                    _altKeyVisual.IsVisible = false;
+                    _shiftKeyVisual.IsVisible = false;
+                    _plusSeparator.IsVisible = false;
+                    _mainKeyVisual.IsVisible = false;
+                    _clearButton.IsVisible = false;
+                }
+
+                _recorderBorder.BorderBrush = GetResourceBrush("TextControlBorderBrush");
+                _recorderBorder.BorderThickness = new Thickness(1);
+            }
+        }
+        catch
+        {
+            // Ignore exceptions during layout/resize
         }
     }
 
@@ -761,23 +567,5 @@ public partial class HotkeyRecorder : UserControl, IDisposable
             "SystemAccentColor" => Brushes.DodgerBlue,
             _ => Brushes.Gray
         };
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-
-        StopGlobalHook();
-
-        if (_recorderBorder != null)
-        {
-            _recorderBorder.PointerPressed -= OnBorderPressed;
-        }
-
-        if (_clearButton != null)
-        {
-            _clearButton.Click -= OnClearClick;
-        }
     }
 }

@@ -29,11 +29,6 @@ public class AppSettings
     public bool StartWithSystem { get; set; } = false;
     
     /// <summary>
-    /// Window opacity (0.0 to 1.0)
-    /// </summary>
-    public double WindowOpacity { get; set; } = 0.95;
-    
-    /// <summary>
     /// Maximum number of items to store (0 = unlimited)
     /// </summary>
     public int MaxHistoryItems { get; set; } = 1000;

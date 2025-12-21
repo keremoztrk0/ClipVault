@@ -7,6 +7,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using ClipVault.App.Models;
+using Microsoft.Extensions.Logging;
 using Serilog;
 
 #pragma warning disable CS0618 // Type or member is obsolete (Avalonia clipboard API)
@@ -17,10 +18,8 @@ namespace ClipVault.App.Services.Clipboard;
 ///     macOS-specific clipboard monitor using native NSPasteboard API.
 ///     Uses changeCount for efficient change detection instead of content hashing.
 /// </summary>
-public partial class MacOsClipboardMonitor : IClipboardMonitor
+public partial class MacOsClipboardMonitor(ILogger<MacOsClipboardMonitor> logger) : IClipboardMonitor
 {
-    private static readonly ILogger Logger = Log.ForContext<MacOsClipboardMonitor>();
-
     private CancellationTokenSource? _cts;
     private bool _disposed;
     private long _lastChangeCount = -1;
@@ -34,7 +33,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
     {
         if (IsMonitoring) return;
 
-        Logger.Information("Starting clipboard monitor (native NSPasteboard)");
+        logger.LogInformation("Starting clipboard monitor (native NSPasteboard)");
 
         IsMonitoring = true;
         _cts = new CancellationTokenSource();
@@ -47,14 +46,14 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
 
         // Get initial change count
         _lastChangeCount = NativeMethods.GetPasteboardChangeCount();
-        Logger.Debug("Initial pasteboard changeCount: {ChangeCount}", _lastChangeCount);
+        logger.LogDebug("Initial pasteboard changeCount: {ChangeCount}", _lastChangeCount);
 
         _ = PollClipboardAsync(_cts.Token);
     }
 
     public Task StopAsync()
     {
-        Logger.Information("Stopping clipboard monitor");
+        logger.LogInformation("Stopping clipboard monitor");
         IsMonitoring = false;
         _cts?.Cancel();
         _cts?.Dispose();
@@ -74,7 +73,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                 if (clipboard == null) return null;
 
                 string[]? formats = await clipboard.GetFormatsAsync();
-                Logger.Debug("Available clipboard formats: {Formats}", string.Join(", ", formats ?? []));
+                logger.LogDebug("Available clipboard formats: {Formats}", string.Join(", ", formats ?? []));
 
                 // Check for files first
                 if (formats != null && (formats.Contains("public.file-url") || formats.Contains("NSFilenamesPboardType")))
@@ -84,7 +83,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                     if (filePaths is { Length: > 0 })
                     {
                         ClipboardContentType contentType = DetermineFileContentType(filePaths);
-                        Logger.Debug("Clipboard contains files: {Count}, Type: {Type}", filePaths.Length, contentType);
+                        logger.LogDebug("Clipboard contains files: {Count}, Type: {Type}", filePaths.Length, contentType);
                         return new ClipboardContent
                         {
                             Type = contentType,
@@ -98,11 +97,11 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                                         formats.Contains("public.jpeg") || formats.Contains("NSPasteboardTypePNG") ||
                                         formats.Contains("NSPasteboardTypeTIFF")))
                 {
-                    Logger.Debug("Clipboard contains image data");
+                    logger.LogDebug("Clipboard contains image data");
                     byte[]? imageData = NativeMethods.GetImageDataFromPasteboard();
                     if (imageData is { Length: > 0 })
                     {
-                        Logger.Information("Retrieved image from clipboard: {Size} bytes", imageData.Length);
+                        logger.LogInformation("Retrieved image from clipboard: {Size} bytes", imageData.Length);
                         return new ClipboardContent
                         {
                             Type = ClipboardContentType.Image,
@@ -125,7 +124,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error getting clipboard content");
+            logger.LogError(ex, "Error getting clipboard content");
             return null;
         }
     }
@@ -146,10 +145,10 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                 if (success)
                 {
                     _lastChangeCount = NativeMethods.GetPasteboardChangeCount();
-                    Logger.Debug("Set image to pasteboard via Avalonia, changeCount: {ChangeCount}", _lastChangeCount);
+                    logger.LogDebug("Set image to pasteboard via Avalonia, changeCount: {ChangeCount}", _lastChangeCount);
                     return;
                 }
-                Logger.Warning("Failed to set image via Avalonia, falling back to text");
+                logger.LogWarning("Failed to set image via Avalonia, falling back to text");
             }
 
             await Dispatcher.UIThread.InvokeAsync(async () =>
@@ -182,11 +181,11 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
 
             // Update change count to skip our own change
             _lastChangeCount = NativeMethods.GetPasteboardChangeCount();
-            Logger.Debug("Updated lastChangeCount after set: {ChangeCount}", _lastChangeCount);
+            logger.LogDebug("Updated lastChangeCount after set: {ChangeCount}", _lastChangeCount);
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error setting clipboard content");
+            logger.LogError(ex, "Error setting clipboard content");
         }
     }
     
@@ -222,13 +221,13 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                 
                 await clipboard.SetDataObjectAsync(dataObject);
                 
-                Logger.Debug("Image set to clipboard via Avalonia DataObject: {Size} bytes", imageData.Length);
+                logger.LogDebug("Image set to clipboard via Avalonia DataObject: {Size} bytes", imageData.Length);
                 return true;
             });
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Failed to set image to clipboard");
+            logger.LogError(ex, "Failed to set image to clipboard");
             return false;
         }
     }
@@ -247,7 +246,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
 
     private async Task PollClipboardAsync(CancellationToken cancellationToken)
     {
-        Logger.Debug("Clipboard polling started with native changeCount detection");
+        logger.LogDebug("Clipboard polling started with native changeCount detection");
 
         while (!cancellationToken.IsCancellationRequested && IsMonitoring)
         {
@@ -259,7 +258,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                 long currentChangeCount = NativeMethods.GetPasteboardChangeCount();
                 if (currentChangeCount == _lastChangeCount) continue;
 
-                Logger.Debug("Pasteboard changeCount changed: {Old} -> {New}", _lastChangeCount, currentChangeCount);
+                logger.LogDebug("Pasteboard changeCount changed: {Old} -> {New}", _lastChangeCount, currentChangeCount);
                 _lastChangeCount = currentChangeCount;
 
                 // Only fetch content when we detect a change
@@ -267,7 +266,7 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
                 if (content == null) continue;
 
                 string? sourceApp = NativeMethods.GetFrontmostApplicationName();
-                Logger.Information("New clipboard content detected: {Type}, Source: {Source}",
+                logger.LogInformation("New clipboard content detected: {Type}, Source: {Source}",
                     content.Type, sourceApp ?? "unknown");
 
                 ClipboardChanged?.Invoke(this, new ClipboardChangedEventArgs
@@ -283,11 +282,11 @@ public partial class MacOsClipboardMonitor : IClipboardMonitor
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Clipboard polling error");
+                logger.LogError(ex, "Clipboard polling error");
             }
         }
 
-        Logger.Debug("Clipboard polling stopped");
+        logger.LogDebug("Clipboard polling stopped");
     }
 
     private static ClipboardContentType DetermineFileContentType(string[] filePaths)

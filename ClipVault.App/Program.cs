@@ -14,17 +14,28 @@ internal class Program
     public static void Main(string[] args)
     {
         // Configure Serilog first so we can log the single instance check
-        string logPath = Path.Combine(AppDbContext.GetAppDataPath(), "Logs", "clipvault-.log");
+        string logPath = Path.Combine(DbConnectionFactory.GetAppDataPath(), "Logs", "clipvault-.log");
 
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
-            .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+            .Enrich.WithThreadId()
+            .Enrich.WithProcessId()
+            .Enrich.WithProcessName()
+            .Enrich.WithMachineName()
+            .Enrich.WithEnvironmentUserName()
+            .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{ThreadId}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
             .WriteTo.File(
                 logPath,
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: 7,
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{ThreadId}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
+        
+        // Log environment info at startup for diagnostics
+        Log.Information("Environment: {MachineName}, User: {User}, OS: {OS}", 
+            Environment.MachineName, 
+            Environment.UserName,
+            Environment.OSVersion);
 
         try
         {

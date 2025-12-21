@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace ClipVault.App.Services.Clipboard;
 
 /// <summary>
@@ -8,21 +10,21 @@ public static class ClipboardMonitorFactory
     /// <summary>
     /// Creates a clipboard monitor for the current platform.
     /// </summary>
-    public static IClipboardMonitor Create()
+    public static IClipboardMonitor Create(ILoggerFactory loggerFactory)
     {
         if (OperatingSystem.IsWindows())
         {
-            return new WindowsClipboardMonitor();
+            return new WindowsClipboardMonitor(loggerFactory.CreateLogger<WindowsClipboardMonitor>());
         }
         
         if (OperatingSystem.IsMacOS())
         {
-            return new MacOsClipboardMonitor();
+            return new MacOsClipboardMonitor(loggerFactory.CreateLogger<MacOsClipboardMonitor>());
         }
         
         if (OperatingSystem.IsLinux())
         {
-            return new LinuxClipboardMonitor();
+            return new LinuxClipboardMonitor(loggerFactory.CreateLogger<LinuxClipboardMonitor>());
         }
         
         throw new PlatformNotSupportedException(

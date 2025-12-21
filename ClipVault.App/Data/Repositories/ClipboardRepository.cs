@@ -7,43 +7,34 @@ namespace ClipVault.App.Data.Repositories;
 /// <summary>
 /// Repository implementation for clipboard items using Dapper.
 /// </summary>
-public class ClipboardRepository : IClipboardRepository
+public class ClipboardRepository(IDbConnectionFactory connectionFactory) : IClipboardRepository
 {
-    private readonly AppDbContext _context;
-    
-    public ClipboardRepository(AppDbContext context)
-    {
-        _context = context;
-    }
-    
     public async Task<ClipboardItem?> GetByIdAsync(Guid id)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         ClipboardItem? item = await connection.QueryFirstOrDefaultAsync<ClipboardItem>(
             "SELECT * FROM ClipboardItems WHERE Id = @Id",
             new { Id = id.ToString() });
-        
-        if (item != null)
-        {
-            item.Metadata = await connection.QueryFirstOrDefaultAsync<ClipboardMetadata>(
-                "SELECT * FROM ClipboardMetadata WHERE ClipboardItemId = @ClipboardItemId",
-                new { ClipboardItemId = id.ToString() });
+
+        if (item == null) return item;
+        item.Metadata = await connection.QueryFirstOrDefaultAsync<ClipboardMetadata>(
+            "SELECT * FROM ClipboardMetadata WHERE ClipboardItemId = @ClipboardItemId",
+            new { ClipboardItemId = id.ToString() });
             
-            if (item.GroupId.HasValue)
-            {
-                item.Group = await connection.QueryFirstOrDefaultAsync<ClipboardGroup>(
-                    "SELECT * FROM ClipboardGroups WHERE Id = @Id",
-                    new { Id = item.GroupId.Value.ToString() });
-            }
+        if (item.GroupId.HasValue)
+        {
+            item.Group = await connection.QueryFirstOrDefaultAsync<ClipboardGroup>(
+                "SELECT * FROM ClipboardGroups WHERE Id = @Id",
+                new { Id = item.GroupId.Value.ToString() });
         }
-        
+
         return item;
     }
     
     public async Task<ClipboardItem?> GetByHashAsync(string contentHash)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         ClipboardItem? item = await connection.QueryFirstOrDefaultAsync<ClipboardItem>(
             "SELECT * FROM ClipboardItems WHERE ContentHash = @ContentHash",
@@ -61,7 +52,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<List<ClipboardItem>> GetAllAsync(int? limit = null, int offset = 0)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         string sql = "SELECT * FROM ClipboardItems ORDER BY CreatedAt DESC";
         
@@ -83,7 +74,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<List<ClipboardItem>> GetByGroupAsync(Guid groupId, int? limit = null, int offset = 0)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         string sql = "SELECT * FROM ClipboardItems WHERE GroupId = @GroupId ORDER BY CreatedAt DESC";
         
@@ -105,17 +96,19 @@ public class ClipboardRepository : IClipboardRepository
         ClipboardContentType? contentType = null, 
         Guid? groupId = null)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         string sql = "SELECT * FROM ClipboardItems WHERE 1=1";
         DynamicParameters parameters = new DynamicParameters();
         
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {
-            sql += @" AND (
-                PreviewText LIKE @SearchTerm 
-                OR TextContent LIKE @SearchTerm 
-                OR SourceApplication LIKE @SearchTerm)";
+            sql += """
+                    AND (
+                                   PreviewText LIKE @SearchTerm 
+                                   OR TextContent LIKE @SearchTerm 
+                                   OR SourceApplication LIKE @SearchTerm)
+                   """;
             parameters.Add("SearchTerm", $"%{searchTerm}%");
         }
         
@@ -142,8 +135,8 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<ClipboardItem> AddAsync(ClipboardItem item)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
-        using SqliteTransaction transaction = connection.BeginTransaction();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
+        await using SqliteTransaction transaction = connection.BeginTransaction();
         
         try
         {
@@ -168,9 +161,11 @@ public class ClipboardRepository : IClipboardRepository
             if (item.Metadata != null)
             {
                 item.Metadata.ClipboardItemId = item.Id;
-                await connection.ExecuteAsync(@"
-                    INSERT INTO ClipboardMetadata (Id, ClipboardItemId, CharacterCount, WordCount, LineCount, FileName, FileSize, FileExtension, OriginalPath, DurationMs, Width, Height, MimeType, FileCount)
-                    VALUES (@Id, @ClipboardItemId, @CharacterCount, @WordCount, @LineCount, @FileName, @FileSize, @FileExtension, @OriginalPath, @DurationMs, @Width, @Height, @MimeType, @FileCount)",
+                await connection.ExecuteAsync("""
+
+                                                                  INSERT INTO ClipboardMetadata (Id, ClipboardItemId, CharacterCount, WordCount, LineCount, FileName, FileSize, FileExtension, OriginalPath, DurationMs, Width, Height, MimeType, FileCount)
+                                                                  VALUES (@Id, @ClipboardItemId, @CharacterCount, @WordCount, @LineCount, @FileName, @FileSize, @FileExtension, @OriginalPath, @DurationMs, @Width, @Height, @MimeType, @FileCount)
+                                              """,
                     new
                     {
                         Id = item.Metadata.Id.ToString(),
@@ -202,14 +197,16 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<ClipboardItem> UpdateAsync(ClipboardItem item)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
-        await connection.ExecuteAsync(@"
-            UPDATE ClipboardItems 
-            SET ContentType = @ContentType, TextContent = @TextContent, FilePath = @FilePath, 
-                PreviewText = @PreviewText, SourceApplication = @SourceApplication, GroupId = @GroupId,
-                IsFavorite = @IsFavorite, LastAccessedAt = @LastAccessedAt, ContentHash = @ContentHash
-            WHERE Id = @Id",
+        await connection.ExecuteAsync("""
+
+                                                  UPDATE ClipboardItems 
+                                                  SET ContentType = @ContentType, TextContent = @TextContent, FilePath = @FilePath, 
+                                                      PreviewText = @PreviewText, SourceApplication = @SourceApplication, GroupId = @GroupId,
+                                                      IsFavorite = @IsFavorite, LastAccessedAt = @LastAccessedAt, ContentHash = @ContentHash
+                                                  WHERE Id = @Id
+                                      """,
             new
             {
                 Id = item.Id.ToString(),
@@ -229,7 +226,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task DeleteAsync(Guid id)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         // Metadata will be deleted by CASCADE
         await connection.ExecuteAsync(
@@ -239,7 +236,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task DeleteAllAsync()
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         await connection.ExecuteAsync("DELETE FROM ClipboardMetadata");
         await connection.ExecuteAsync("DELETE FROM ClipboardItems");
@@ -247,14 +244,14 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<int> GetCountAsync()
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         return await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ClipboardItems");
     }
     
     public async Task<int> GetCountByGroupAsync(Guid groupId)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         return await connection.ExecuteScalarAsync<int>(
             "SELECT COUNT(*) FROM ClipboardItems WHERE GroupId = @GroupId",
@@ -263,7 +260,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<Dictionary<Guid, int>> GetCountsByGroupAsync()
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         IEnumerable<dynamic> results = await connection.QueryAsync(
             "SELECT GroupId, COUNT(*) as Count FROM ClipboardItems WHERE GroupId IS NOT NULL GROUP BY GroupId");
@@ -271,12 +268,9 @@ public class ClipboardRepository : IClipboardRepository
         Dictionary<Guid, int> counts = new();
         foreach (dynamic row in results)
         {
-            string? groupIdStr = row.GroupId as string;
-            if (groupIdStr != null)
-            {
-                Guid gid = Guid.Parse(groupIdStr);
-                counts[gid] = (int)(long)row.Count;
-            }
+            if (row.GroupId is not string groupIdStr) continue;
+            Guid gid = Guid.Parse(groupIdStr);
+            counts[gid] = (int)(long)row.Count;
         }
         
         return counts;
@@ -284,7 +278,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task UpdateLastAccessedAsync(Guid id)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         await connection.ExecuteAsync(
             "UPDATE ClipboardItems SET LastAccessedAt = @LastAccessedAt WHERE Id = @Id",
@@ -293,12 +287,14 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<List<ClipboardItem>> GetItemsOlderThanAsync(DateTime olderThan)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         // Get non-favorite items older than the specified date that are NOT in a group
         List<ClipboardItem> items = (await connection.QueryAsync<ClipboardItem>(
-            @"SELECT * FROM ClipboardItems 
-              WHERE CreatedAt < @OlderThan AND IsFavorite = 0 AND GroupId IS NULL",
+            """
+            SELECT * FROM ClipboardItems 
+                          WHERE CreatedAt < @OlderThan AND IsFavorite = 0 AND GroupId IS NULL
+            """,
             new { OlderThan = olderThan.ToString("O") })).ToList();
         
         return items;
@@ -306,7 +302,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<List<ClipboardItem>> GetExcessItemsAsync(int maxItems)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         // Get total count of items that can be deleted (not in a group)
         int totalCount = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ClipboardItems WHERE GroupId IS NULL");
@@ -320,10 +316,12 @@ public class ClipboardRepository : IClipboardRepository
         
         // Get oldest non-favorite items that are NOT in a group
         List<ClipboardItem> items = (await connection.QueryAsync<ClipboardItem>(
-            @"SELECT * FROM ClipboardItems 
-              WHERE IsFavorite = 0 AND GroupId IS NULL
-              ORDER BY CreatedAt ASC 
-              LIMIT @ToDelete",
+            """
+            SELECT * FROM ClipboardItems 
+                          WHERE IsFavorite = 0 AND GroupId IS NULL
+                          ORDER BY CreatedAt ASC 
+                          LIMIT @ToDelete
+            """,
             new { ToDelete = toDelete })).ToList();
         
         return items;
@@ -331,14 +329,16 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<int> DeleteOlderThanAsync(DateTime olderThan)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         // Delete non-favorite items older than the specified date
         // Also exclude items that belong to a group (GroupId IS NOT NULL)
         // Metadata will be deleted by CASCADE
         int deleted = await connection.ExecuteAsync(
-            @"DELETE FROM ClipboardItems 
-              WHERE CreatedAt < @OlderThan AND IsFavorite = 0 AND GroupId IS NULL",
+            """
+            DELETE FROM ClipboardItems 
+                          WHERE CreatedAt < @OlderThan AND IsFavorite = 0 AND GroupId IS NULL
+            """,
             new { OlderThan = olderThan.ToString("O") });
         
         return deleted;
@@ -346,7 +346,7 @@ public class ClipboardRepository : IClipboardRepository
     
     public async Task<int> DeleteExcessItemsAsync(int maxItems)
     {
-        using SqliteConnection connection = await _context.GetOpenConnectionAsync();
+        await using SqliteConnection connection = await connectionFactory.GetOpenConnectionAsync();
         
         // Get total count of items that can be deleted (not in a group)
         int totalCount = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ClipboardItems WHERE GroupId IS NULL");
@@ -361,13 +361,15 @@ public class ClipboardRepository : IClipboardRepository
         // Delete oldest non-favorite items that are NOT in a group
         // Using a subquery to find the IDs of items to delete
         int deleted = await connection.ExecuteAsync(
-            @"DELETE FROM ClipboardItems 
-              WHERE Id IN (
-                  SELECT Id FROM ClipboardItems 
-                  WHERE IsFavorite = 0 AND GroupId IS NULL
-                  ORDER BY CreatedAt ASC 
-                  LIMIT @ToDelete
-              )",
+            """
+            DELETE FROM ClipboardItems 
+                          WHERE Id IN (
+                              SELECT Id FROM ClipboardItems 
+                              WHERE IsFavorite = 0 AND GroupId IS NULL
+                              ORDER BY CreatedAt ASC 
+                              LIMIT @ToDelete
+                          )
+            """,
             new { ToDelete = toDelete });
         
         return deleted;

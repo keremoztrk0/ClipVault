@@ -1,29 +1,15 @@
+using ClipVault.App.Helpers;
 using ClipVault.App.Models;
 using ClipVault.App.Services.Clipboard;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
 namespace ClipVault.App.Services;
 
 /// <summary>
 /// Extracts metadata from clipboard content based on content type.
 /// </summary>
-public class MetadataExtractor : IMetadataExtractor
+public class MetadataExtractor(ILogger<MetadataExtractor> logger) : IMetadataExtractor
 {
-    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif"
-    };
-    
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".webm", ".flv", ".m4v", ".mpeg", ".mpg"
-    };
-    
-    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus"
-    };
-    
     public async Task<ClipboardMetadata> ExtractMetadataAsync(ClipboardContent content, Guid clipboardItemId)
     {
         ClipboardMetadata metadata = new ClipboardMetadata
@@ -173,7 +159,7 @@ public class MetadataExtractor : IMetadataExtractor
         return null;
     }
     
-    private static async Task ExtractFileMetadataAsync(string? filePath, ClipboardMetadata metadata)
+    private async Task ExtractFileMetadataAsync(string? filePath, ClipboardMetadata metadata)
     {
         if (string.IsNullOrEmpty(filePath)) return;
         
@@ -187,7 +173,7 @@ public class MetadataExtractor : IMetadataExtractor
                 metadata.FileSize = fileInfo.Length;
                 metadata.FileExtension = fileInfo.Extension;
                 metadata.OriginalPath = filePath;
-                metadata.MimeType = GetMimeType(fileInfo.Extension);
+                metadata.MimeType = FileTypeHelper.GetMimeType(fileInfo.Extension);
             }
             else
             {
@@ -199,7 +185,7 @@ public class MetadataExtractor : IMetadataExtractor
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Error extracting file metadata for: {FilePath}", filePath);
+            logger.LogWarning(ex, "Error extracting file metadata for: {FilePath}", filePath);
         }
         
         await Task.CompletedTask;
@@ -229,7 +215,7 @@ public class MetadataExtractor : IMetadataExtractor
         metadata.OriginalPath = string.Join(";", filePaths);
     }
     
-    private static async Task ExtractVideoMetadataAsync(string? filePath, ClipboardMetadata metadata)
+    private async Task ExtractVideoMetadataAsync(string? filePath, ClipboardMetadata metadata)
     {
         if (string.IsNullOrEmpty(filePath)) return;
         
@@ -239,11 +225,11 @@ public class MetadataExtractor : IMetadataExtractor
         // For now, we just mark the mime type
         if (!string.IsNullOrEmpty(metadata.FileExtension))
         {
-            metadata.MimeType = GetMimeType(metadata.FileExtension);
+            metadata.MimeType = FileTypeHelper.GetMimeType(metadata.FileExtension);
         }
     }
     
-    private static async Task ExtractAudioMetadataAsync(string? filePath, ClipboardMetadata metadata)
+    private async Task ExtractAudioMetadataAsync(string? filePath, ClipboardMetadata metadata)
     {
         if (string.IsNullOrEmpty(filePath)) return;
         
@@ -252,65 +238,8 @@ public class MetadataExtractor : IMetadataExtractor
         // Note: Duration extraction requires a media library
         if (!string.IsNullOrEmpty(metadata.FileExtension))
         {
-            metadata.MimeType = GetMimeType(metadata.FileExtension);
+            metadata.MimeType = FileTypeHelper.GetMimeType(metadata.FileExtension);
         }
     }
     
-    private static string GetMimeType(string extension)
-    {
-        return extension.ToLowerInvariant() switch
-        {
-            // Images
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".png" => "image/png",
-            ".gif" => "image/gif",
-            ".bmp" => "image/bmp",
-            ".webp" => "image/webp",
-            ".svg" => "image/svg+xml",
-            ".ico" => "image/x-icon",
-            ".tiff" or ".tif" => "image/tiff",
-            
-            // Videos
-            ".mp4" => "video/mp4",
-            ".avi" => "video/x-msvideo",
-            ".mkv" => "video/x-matroska",
-            ".mov" => "video/quicktime",
-            ".wmv" => "video/x-ms-wmv",
-            ".webm" => "video/webm",
-            ".flv" => "video/x-flv",
-            
-            // Audio
-            ".mp3" => "audio/mpeg",
-            ".wav" => "audio/wav",
-            ".flac" => "audio/flac",
-            ".aac" => "audio/aac",
-            ".ogg" => "audio/ogg",
-            ".m4a" => "audio/mp4",
-            ".wma" => "audio/x-ms-wma",
-            
-            // Documents
-            ".pdf" => "application/pdf",
-            ".doc" => "application/msword",
-            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ".xls" => "application/vnd.ms-excel",
-            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ".ppt" => "application/vnd.ms-powerpoint",
-            ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            ".txt" => "text/plain",
-            ".html" or ".htm" => "text/html",
-            ".css" => "text/css",
-            ".js" => "application/javascript",
-            ".json" => "application/json",
-            ".xml" => "application/xml",
-            
-            // Archives
-            ".zip" => "application/zip",
-            ".rar" => "application/x-rar-compressed",
-            ".7z" => "application/x-7z-compressed",
-            ".tar" => "application/x-tar",
-            ".gz" => "application/gzip",
-            
-            _ => "application/octet-stream"
-        };
-    }
 }

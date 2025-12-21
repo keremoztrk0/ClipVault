@@ -92,51 +92,45 @@ public partial class KeyVisual : UserControl
     
     private void UpdateVisuals()
     {
-        if (_keyBorder == null || _keyTextBlock == null)
+        // Skip if controls aren't ready or control isn't fully loaded
+        if (_keyBorder == null || _keyTextBlock == null || !IsLoaded)
         {
             return;
         }
         
-        _keyTextBlock.Text = KeyText;
-        
-        // ActualThemeVariant can be null during layout before control is fully attached
-        var themeVariant = ActualThemeVariant;
-        bool isDark = themeVariant == ThemeVariant.Dark || themeVariant == null;
-        
-        switch (VisualStyle)
+        try
         {
-            case KeyVisualStyle.Default:
-                _keyBorder.Background = GetBrush(isDark ? "#3D3D3D" : "#E5E5E5");
-                _keyBorder.BorderBrush = GetBrush(isDark ? "#5C5C5C" : "#CCCCCC");
-                _keyTextBlock.Foreground = GetBrush(isDark ? "#FFFFFF" : "#1A1A1A");
-                break;
-                
-            case KeyVisualStyle.Accent:
-                // Use accent color for the main key - but only if themeVariant is not null
-                if (themeVariant != null && 
-                    TryGetResource("SystemAccentColor", themeVariant, out object? accentColor) && 
-                    accentColor is Color accent)
-                {
-                    _keyBorder.Background = new SolidColorBrush(accent);
-                    _keyBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 
-                        (byte)Math.Min(255, accent.R + 30),
-                        (byte)Math.Min(255, accent.G + 30),
-                        (byte)Math.Min(255, accent.B + 30)));
-                    _keyTextBlock.Foreground = Brushes.White;
-                }
-                else
-                {
+            _keyTextBlock.Text = KeyText;
+            
+            // ActualThemeVariant can be null during layout before control is fully attached
+            var themeVariant = ActualThemeVariant;
+            bool isDark = themeVariant == ThemeVariant.Dark || themeVariant == null;
+            
+            switch (VisualStyle)
+            {
+                case KeyVisualStyle.Default:
+                    _keyBorder.Background = GetBrush(isDark ? "#3D3D3D" : "#E5E5E5");
+                    _keyBorder.BorderBrush = GetBrush(isDark ? "#5C5C5C" : "#CCCCCC");
+                    _keyTextBlock.Foreground = GetBrush(isDark ? "#FFFFFF" : "#1A1A1A");
+                    break;
+                    
+                case KeyVisualStyle.Accent:
+                    // Use fallback colors - don't try to access theme resources during layout
                     _keyBorder.Background = GetBrush("#0078D4");
                     _keyBorder.BorderBrush = GetBrush("#106EBE");
                     _keyTextBlock.Foreground = Brushes.White;
-                }
-                break;
-                
-            case KeyVisualStyle.Subtle:
-                _keyBorder.Background = GetBrush(isDark ? "#2D2D2D" : "#F0F0F0");
-                _keyBorder.BorderBrush = GetBrush(isDark ? "#4D4D4D" : "#DDDDDD");
-                _keyTextBlock.Foreground = GetBrush(isDark ? "#888888" : "#888888");
-                break;
+                    break;
+                    
+                case KeyVisualStyle.Subtle:
+                    _keyBorder.Background = GetBrush(isDark ? "#2D2D2D" : "#F0F0F0");
+                    _keyBorder.BorderBrush = GetBrush(isDark ? "#4D4D4D" : "#DDDDDD");
+                    _keyTextBlock.Foreground = GetBrush(isDark ? "#888888" : "#888888");
+                    break;
+            }
+        }
+        catch
+        {
+            // Ignore exceptions during layout/resize - visuals will update on next valid call
         }
     }
     
