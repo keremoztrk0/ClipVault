@@ -566,7 +566,7 @@ public partial class MainWindow : Window
             
             try
             {
-                SettingsWindow settingsWindow = new(settingsRepository);
+                SettingsWindow settingsWindow = new(settingsRepository, _hotkeyManager);
                 await settingsWindow.InitializeAsync();
                 
                 bool? result = await settingsWindow.ShowDialog<bool?>(this);

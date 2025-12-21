@@ -2,7 +2,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignWidth="200" d:DesignHeight="40"
+             xmlns:controls="clr-namespace:ClipVault.App.Controls"
+             mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="50"
              x:Class="ClipVault.App.Controls.HotkeyRecorder"
              Focusable="True">
     
@@ -11,14 +12,72 @@
             BorderBrush="{DynamicResource TextControlBorderBrush}"
             BorderThickness="1"
             CornerRadius="4"
-            Padding="10,8"
+            Padding="8,6"
+            MinHeight="40"
             Cursor="Hand">
         <Grid ColumnDefinitions="*,Auto">
-            <TextBlock x:Name="HotkeyDisplay"
-                       Grid.Column="0"
-                       Text="Click to record..."
-                       VerticalAlignment="Center"
-                       Foreground="{DynamicResource TextControlPlaceholderForeground}"/>
+            <!-- Key visuals display area -->
+            <StackPanel x:Name="KeysPanel"
+                        Grid.Column="0"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        VerticalAlignment="Center">
+                <!-- Placeholder when no keys are set -->
+                <TextBlock x:Name="PlaceholderText"
+                           Text="Click to record hotkey..."
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextControlPlaceholderForeground}"
+                           IsVisible="True"/>
+                
+                <!-- Recording indicator -->
+                <TextBlock x:Name="RecordingText"
+                           Text="Press keys..."
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SystemAccentColor}"
+                           FontStyle="Italic"
+                           IsVisible="False"/>
+                
+                <!-- Win key visual -->
+                <controls:KeyVisual x:Name="WinKeyVisual"
+                                    KeyText="Win"
+                                    VisualStyle="Default"
+                                    IsVisible="False"/>
+                
+                <!-- Ctrl key visual -->
+                <controls:KeyVisual x:Name="CtrlKeyVisual"
+                                    KeyText="Ctrl"
+                                    VisualStyle="Default"
+                                    IsVisible="False"/>
+                
+                <!-- Alt key visual -->
+                <controls:KeyVisual x:Name="AltKeyVisual"
+                                    KeyText="Alt"
+                                    VisualStyle="Default"
+                                    IsVisible="False"/>
+                
+                <!-- Shift key visual -->
+                <controls:KeyVisual x:Name="ShiftKeyVisual"
+                                    KeyText="Shift"
+                                    VisualStyle="Default"
+                                    IsVisible="False"/>
+                
+                <!-- Plus separator before main key -->
+                <TextBlock x:Name="PlusSeparator"
+                           Text="+"
+                           VerticalAlignment="Center"
+                           FontWeight="Bold"
+                           Margin="2,0"
+                           Foreground="{DynamicResource TextControlForeground}"
+                           IsVisible="False"/>
+                
+                <!-- Main key visual -->
+                <controls:KeyVisual x:Name="MainKeyVisual"
+                                    KeyText="V"
+                                    VisualStyle="Accent"
+                                    IsVisible="False"/>
+            </StackPanel>
+            
+            <!-- Clear button -->
             <Button x:Name="ClearButton"
                     Grid.Column="1"
                     Content="&#xE711;"

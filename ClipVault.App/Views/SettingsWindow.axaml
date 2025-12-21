@@ -81,6 +81,7 @@
                             <TextBlock Text="Click to record a new keyboard shortcut" Classes="settingDescription"/>
                         </StackPanel>
                         <controls:HotkeyRecorder Grid.Column="1" 
+                                                  x:Name="HotkeyRecorderControl"
                                                   Hotkey="{Binding GlobalHotkey, Mode=TwoWay}"
                                                   Width="180"
                                                   VerticalAlignment="Center"/>

@@ -1,0 +1,24 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="60" d:DesignHeight="32"
+             x:Class="ClipVault.App.Controls.KeyVisual">
+    
+    <Border x:Name="KeyBorder"
+            Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+            BorderThickness="1"
+            CornerRadius="4"
+            Padding="8,4"
+            MinWidth="32"
+            MinHeight="28">
+        <TextBlock x:Name="KeyTextBlock"
+                   Text="Key"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}"/>
+    </Border>
+</UserControl>
